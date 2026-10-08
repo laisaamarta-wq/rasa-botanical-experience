@@ -29,6 +29,7 @@ uniform vec3 uBg;
 uniform float uB0, uB1, uMix, uK, uWipe;
 uniform int uMode;
 uniform vec4 uLens;
+uniform vec3 uLB;                // lens: reveal (0 = only the drop, 1 = the world inside), desaturation, edge feather
 uniform float uExpo, uFade, uVig, uMist, uTime, uWarm, uAmber;
 uniform vec3 uFadeCol;
 
@@ -82,6 +83,8 @@ void main(){
     float ca = .022*uK*rr*rr;
     vec2 b0 = (C + qf*uLens.w*(1.-ca))/asp, b1 = (C + qf*uLens.w)/asp, b2 = (C + qf*uLens.w*(1.+ca))/asp;
     vec3 lc = vec3(texture(uT1, b0*uX1.xy+uX1.zw).r, texture(uT1, b1*uX1.xy+uX1.zw).g, texture(uT1, b2*uX1.xy+uX1.zw).b);
+    // the next world surfaces inside the drop gradually and in the drop's own colours before it blooms
+    lc = mix(c0, mix(vec3(dot(lc, vec3(.3,.55,.15))), lc, 1. - uLB.y), uLB.x);
     float edge = smoothstep(.5, 1., rr);
     lc *= 1. - .6*edge*edge*uK;
     float ring = smoothstep(.84,.965,rr)*(1.-smoothstep(.965,1.,rr));
@@ -89,7 +92,7 @@ void main(){
     vec2 h = q - vec2(-.36,-.44); lc += uK*.6*exp(-dot(h,h)*42.)*vec3(1.,.99,.96);
     vec2 h2 = q - vec2(.28,.52); lc += uK*.1*exp(-dot(h2,h2)*16.);
     float aa = 2.2/(uLens.z*uRes.y);
-    float m = 1. - smoothstep(1.-aa, 1., r);
+    float m = 1. - smoothstep(1. - max(aa, uLB.z), 1., r);
     float sh = uK*.4*exp(-max(r-1.,0.)*7.)*step(1.,r);
     col = c0*(1.-sh);
     col = mix(col, lc, m*uMix);
@@ -179,6 +182,8 @@ export const HOTSPOTS = [
   { p: [0.285, 0.47], n: 'Heather', l: 'The late bloom', at: 42 },
 ];
 // drop landing times inside the drops sequence (0..1 of the clip) — tuned to the footage
+// the formula: the four plants fall into the bottle as four drops, at these film times
+export const FORMULA_LAND = [147.7, 148.4, 149.1, 149.8];
 export const DRP_LAND = meta.drp ? meta.drp.land : [0.3, 0.6, 0.9];
 const STUDIO = [0.082, 0.086, 0.04];
 const INK = [0.031, 0.043, 0.035];
@@ -364,6 +369,14 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     return { z, c: [bc[0] - (sx - 0.5) * fwF, bc[1] - (syScreen - 0.5) * fhF / ey] };
   }
 
+  // where the bottle stands while the four drops fall into it: desktop beside the text, phones lower-centre under the drops
+  function formulaBottle(u) {
+    const zf = ttFit();
+    if (!mobile) { const z = lerp(zf * 1.06, zf, sm(seg(u, 146.2, 151))); return { z, c: ttAt(0.64, z) }; }
+    const bh = H / W < 1.9 ? 0.36 : 0.42, zr = bh / 0.77 * lerp(1.04, 1, sm(seg(u, 146.2, 151))), ty = 0.61;
+    return { z: zr, c: [0.5, 0.475 + (0.5 - ty) / zr] };
+  }
+
   // ---------- lens ----------
   function lensFrom(L0, drop, t, fmin) {
     const asp = W / H, Rcover = Math.hypot(asp / 2, 0.5) * 1.06;
@@ -501,23 +514,37 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       L0 = L(PL.IB, 2.05 + 3 * ic(t), P.sap);
       L1 = L(PL.IH, 1 + 0.2 * (1 - sm(t)), P.ihBee);
       Object.assign(S, lensFrom(L0, P.sap, t, 0.55));
+      // softer than the opening lenses: the heather appears inside the sap in the birch's grey-green first,
+      // its colour and the warm, misty light of the next scene arrive as the drop grows
+      S.lb = [sm(seg(t, 0.04, 0.5)), 0.7 * (1 - sm(seg(t, 0.2, 0.9))), 0.28 * (1 - sm(seg(t, 0.4, 0.9)))];
+      S.k *= 0.75;
+      S.warm = 0.2 * sm(seg(t, 0.35, 1)); S.mist = 0.5 * sm(seg(t, 0.5, 1));
     } else if (u < 143) {                          // heather, the bee, pollen in the light
       const t = seg(u, 137, 143);
       L0 = L(PL.IH, lerp(1.2, 1.05, oc(t)), lerp2(P.ihBee, [0.45, 0.48], t));
       S.mist = 0.5; S.warm = 0.2;
-    } else if (u < 151) {                          // 09 THE FORMULA — the world draws back into the dark; four plants converge
-      const t = seg(u, 143, 151);
-      L0 = L(PL.IH, lerp(1.05, 1.4, sm(seg(t, 0, 0.5))), [0.45, 0.48], 0.04 * sm(seg(t, 0, 0.35)));
-      S.fade = sm(seg(t, 0.05, 0.4)); S.fadeCol = STUDIO;
-      if (t > 0.7) { L1 = L(PL.TT, lerp(zf * 1.3, zf, oc(seg(t, 0.7, 1))), ttAt(mobile ? 0.5 : 0.64, zf)); S.mix = 1; S.ttA = 0; S.fade = lerp(S.fade, 0, sm(seg(t, 0.72, 0.95))); S.expo = 1 + 0.5 * bump(t, 0.7, 0.76, 0.95); }
+    } else if (u < 151) {                          // 09 THE FORMULA — the world draws back into the dark; four plants fall into the bottle as four drops
+      S.fadeCol = STUDIO;
+      if (u < 146.2) {
+        L0 = L(PL.IH, lerp(1.05, 1.4, sm(seg(u, 143, 147))), [0.45, 0.48], 0.04 * sm(seg(u, 143, 145.8)));
+        S.fade = sm(seg(u, 143.4, 146.1));
+      } else {                                     // the bottle waits in the dark, dim; each drop that lands lights it a little more
+        const F = formulaBottle(u);
+        L0 = L(PL.TT, F.z, F.c); S.ttA = 0;
+        const lit = FORMULA_LAND.reduce((a, l) => a + sm(seg(u, l, l + 0.6)), 0) / 4;
+        S.fade = 1 - sm(seg(u, 146.2, 147.4)) * (0.38 + 0.62 * lit);
+        S.expo = 1 + FORMULA_LAND.reduce((a, l) => a + 0.16 * bump(u, l, l + 0.12, l + 0.9), 0);
+        S.warm = 0.12 * lit;
+      }
     } else if (u < 168) {                          // formula, then 10 THE RITUAL beside the bottle
       const t = seg(u, 151, 168);
       L0 = L(PL.TT, zf, ttAt(mobile ? 0.5 : lerp(0.64, 0.66, t), zf));
       if (mobile) {                                // on a phone the bottle steps up and back to make room for the panel
-        const r = sm(seg(u, 151, 152.6)) * (1 - sm(seg(u, 166.4, 168)));
+        const r1 = sm(seg(u, 151, 152.6)), out = sm(seg(u, 166.4, 168));
         // size and place the bottle in the space between the header and the panel (bottle = 0.77 of the frame, centre 0.475)
         const bh = H / W < 1.9 ? 0.27 : 0.33, zr = bh / 0.77, ty = 64 / H + bh / 2 + 0.015;
-        L0 = L(PL.TT, lerp(zf, zr, r), lerp2(ttAt(0.5, zf), [0.5, 0.475 + (0.5 - ty) / zr], r));
+        const A = formulaBottle(151), Pc = [0.5, 0.475 + (0.5 - ty) / zr];
+        L0 = L(PL.TT, lerp(lerp(A.z, zr, r1), zf, out), lerp2(lerp2(A.c, Pc, r1), ttAt(0.5, zf), out));
       }
       S.ttA = Math.sin(t * Math.PI * 2) * 0.35;
     } else if (u < 172) {                          // 11 SHOP — the bog grows back around the bottle (matched size and place)
@@ -605,7 +632,7 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     gl.uniform1f(U.uMix, has1 ? S.mix : 0);
     gl.uniform1i(U.uMode, has1 ? S.mode : 0);
     gl.uniform1f(U.uK, S.k); gl.uniform1f(U.uWipe, S.wipe);
-    gl.uniform4fv(U.uLens, S.lens);
+    gl.uniform4fv(U.uLens, S.lens); gl.uniform3fv(U.uLB, S.lb || [1, 0, 0]);
     gl.uniform1f(U.uExpo, S.expo); gl.uniform1f(U.uFade, S.fade); gl.uniform1f(U.uVig, S.vig);
     gl.uniform1f(U.uMist, S.mist); gl.uniform1f(U.uTime, time); gl.uniform1f(U.uWarm, S.warm); gl.uniform1f(U.uAmber, S.amber);
     gl.uniform3fv(U.uFadeCol, S.fadeCol);

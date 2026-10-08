@@ -40,6 +40,9 @@
   <button class="chapter" id="chapter" type="button" aria-expanded="false" aria-controls="index" title="All chapters"><span class="chapter__n">01</span><span class="chapter__t">Enter the world</span><span class="chapter__more" aria-hidden="true"></span></button>
   <nav class="index" id="index" aria-label="Chapters" hidden><p class="label">The story · 11 chapters</p><ol id="indexList"></ol></nav>
   <div class="progress" aria-hidden="true"><i id="progress"></i></div>
+  <!-- the story is one long scroll: a hairline on the right edge carries a dew drop at your place in it;
+       when you pause, the drop drips and says so -->
+  <div class="rail" id="rail"><i class="rail__drop"></i><i class="rail__drip"></i><button class="rail__hint" id="railHint" type="button" aria-label="Scroll to continue the story"><span>Scroll</span></button></div>
 
   <main id="top">
     <!-- The whole story is one camera move, driven by normal scrolling -->
@@ -141,10 +144,12 @@
 
         <!-- 09 THE FORMULA -->
         <div class="orbs" id="orbs" aria-hidden="true">
-          <div class="orb"><img data-key="d_cloudberry_sm" alt="" /><span>Cloudberry</span></div>
-          <div class="orb"><img data-key="i_moss_sm" alt="" /><span>Sphagnum</span></div>
-          <div class="orb"><img data-key="b_leaf_sm" alt="" /><span>Birch</span></div>
-          <div class="orb"><img data-key="c_heather_sm" alt="" /><span>Heather</span></div>
+          <svg width="0" height="0" style="position:absolute"><clipPath id="dropClip" clipPathUnits="objectBoundingBox"><path d="M.5 0C.5 0 .08 .46 .08 .66C.08 .87 .27 1 .5 1C.73 1 .92 .87 .92 .66C.92 .46 .5 0 .5 0Z"/></clipPath></svg>
+          <div class="orb"><div class="orb__drop"><img data-key="d_cloudberry_sm" alt="" /></div><span>Cloudberry</span></div>
+          <div class="orb"><div class="orb__drop"><img data-key="i_moss_sm" alt="" /></div><span>Sphagnum</span></div>
+          <div class="orb"><div class="orb__drop"><img data-key="b_leaf_sm" alt="" /></div><span>Birch</span></div>
+          <div class="orb"><div class="orb__drop"><img data-key="c_heather_sm" alt="" /></div><span>Heather</span></div>
+          <i class="ring"></i><i class="ring"></i><i class="ring"></i><i class="ring"></i>
         </div>
         <div class="ov ov--c ov--formula" data-u="144,150"><p class="eyebrow">The formula</p><p class="ov__line">Nature becomes formula.</p></div>
         <div class="ov ov--panel" data-u="151.4,158.4">

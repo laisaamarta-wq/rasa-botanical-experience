@@ -1,6 +1,6 @@
 import './style.css';
 import { A, isMobile } from './assets.js';
-import { createStage, U_MAX, HOTSPOTS, DRP_LAND, clamp, seg, sm, ioc, lerp } from './stage.js';
+import { createStage, U_MAX, HOTSPOTS, DRP_LAND, FORMULA_LAND, clamp, seg, sm, ioc, oc, lerp } from './stage.js';
 import { initShop } from './shop.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -80,7 +80,7 @@ const hots = HOTSPOTS.map((h) => {
 });
 
 const dropMarks = $$('.drops__i', stageEl);
-const orbs = $$('.orb', stageEl);
+const orbs = $$('.orb', stageEl), rings = $$('.orbs .ring', stageEl);
 orbs.forEach((o) => { const im = o.querySelector('img'); im.src = A[im.dataset.key]; });
 
 // ---------- chapters: label, index, address bar ----------
@@ -169,22 +169,27 @@ function updateOverlays(u, S, introT, cueT = 0) {
   // three drops counted as they land
   dropMarks.forEach((d, i) => d.classList.toggle('is-on', u >= 75 + DRP_LAND[i] * 11));
 
-  // the formula: four plants arrive one by one, circle, then fall into one point where the bottle appears
-  if (u > 143.4 && u < 151) {
-    const cx = (mobile ? 0.5 : 0.64) * W, cy = 0.47 * H, R = Math.min(W, H) * (mobile ? 0.3 : 0.27);
-    const from = [[-0.2, 0.3], [1.2, 0.15], [-0.1, 1.15], [1.15, 0.9]];
+  // the formula: each plant arrives as a dew drop holding its world, hangs for a moment, then falls into the bottle;
+  // where it lands, a ring of light spreads through the glass and the bottle grows brighter
+  if (u > 143.6 && u < 151) {
+    const t = performance.now() / 1000;
+    const L = (S && stage.project(S, 'TT', [0.5, 0.5])) || [mobile ? 0.5 : 0.64, mobile ? 0.6 : 0.5];
+    const home = mobile ? [[0.17, 0.39], [0.39, 0.31], [0.61, 0.31], [0.83, 0.39]] : [[0.29, 0.52], [0.38, 0.32], [0.87, 0.32], [0.95, 0.54]];
     orbs.forEach((o, i) => {
-      const tin = ioc(seg(u, 144 + i * 0.8, 145.6 + i * 0.8));
-      const conv = ioc(seg(u, 148.7, 150.3));
-      const ang = -Math.PI / 2 + i * Math.PI / 2 + (u - 143) * 0.12;
-      const rx = cx + Math.cos(ang) * R * (1 - conv), ry = cy + Math.sin(ang) * R * 0.8 * (1 - conv);
-      const x = lerp(from[i][0] * W, rx, tin), y = lerp(from[i][1] * H, ry, tin);
-      const sz = o.offsetWidth || 120;
-      css(o, 'transform', `translate3d(${(x - sz / 2).toFixed(1)}px,${(y - sz / 2).toFixed(1)}px,0) scale(${lerp(1, 0.18, conv).toFixed(3)})`);
-      css(o, 'opacity', (tin * (1 - sm(seg(u, 149.6, 150.4)))).toFixed(2));
-      o.classList.toggle('is-near', conv > 0.05);
+      const tin = ioc(seg(u, 144.1 + i * 0.45, 145.5 + i * 0.45));
+      const f = seg(u, FORMULA_LAND[i] - 0.6, FORMULA_LAND[i]), g = f * f;               // gravity: slow start, fast landing
+      const bob = Math.sin(t * 0.9 + i * 1.7) * 5 * (1 - f);
+      const x = lerp(home[i][0] * W, L[0] * W, g), y = lerp(home[i][1] * H + (1 - tin) * 26, L[1] * H, g) + bob;
+      const w = o.offsetWidth || 90, h = o.offsetHeight || 115;
+      css(o, 'transform', `translate3d(${(x - w / 2).toFixed(1)}px,${(y - h * 0.62).toFixed(1)}px,0) scale(${(lerp(0.7, 1, tin) * lerp(1, 0.3, g)).toFixed(3)})`);
+      css(o, 'opacity', (tin * (1 - sm(seg(f, 0.82, 1)))).toFixed(2));
+      css(o, 'filter', `blur(${((1 - tin) * 6).toFixed(1)}px)`);
+      o.classList.toggle('is-falling', f > 0.02);
+      const k = seg(u, FORMULA_LAND[i], FORMULA_LAND[i] + 0.8), ring = rings[i];
+      css(ring, 'transform', `translate3d(${(L[0] * W).toFixed(1)}px,${(L[1] * H).toFixed(1)}px,0) translate(-50%,-50%) scale(${(0.25 + 1.5 * oc(k)).toFixed(3)})`);
+      css(ring, 'opacity', (k > 0 && k < 1 ? (1 - k) * 0.9 : 0).toFixed(2));
     });
-  } else orbs.forEach((o) => css(o, 'opacity', '0'));
+  } else { orbs.forEach((o) => css(o, 'opacity', '0')); rings.forEach((r) => css(r, 'opacity', '0')); }
 }
 
 // ---------- drag the bottle while it is on screen ----------
@@ -202,6 +207,10 @@ addEventListener('pointercancel', endDrag);
 // ---------- clock ----------
 // uS follows the scroll position with a little inertia (the camera has weight); it never runs ahead of the user.
 // `motion` is how fast the camera is actually moving: motion blur follows it, so a stopped camera is a sharp camera.
+const rail = $('#rail');
+let lastMove = 0, lastTarget = 0;
+// a tap on the rail's hint glides one step further into the story (normal scrolling is never taken over)
+$('#railHint').addEventListener('click', () => scrollBy({ top: innerHeight * 0.85, behavior: reduced ? 'auto' : 'smooth' }));
 let uS = 0, introStart = 0, introT = 0, last = performance.now(), motion = QA ? 1 : 0.3, snapNext = false;
 stage?.firstReady.then(() => { introStart = performance.now(); });
 const filmProgress = () => {
@@ -235,6 +244,14 @@ function frame(now) {
   chapter.classList.toggle('is-hidden', (uS > 171 && uS < 187) || (mobile && uS > 150.6 && uS < 168.6) || uS < 2.8 || r.bottom < innerHeight - 4);
   stageEl.classList.toggle('can-drag', !!canDrag() && !mobile);
   css(progressBar, 'transform', `scaleX(${(uS / U_MAX).toFixed(4)})`);
+  // scroll rail: always shows where you are in the one long story; after a pause it invites the next scroll
+  if (Math.abs(target - uS) > 0.004 || Math.abs(target - lastTarget) > 0.001) lastMove = now;
+  lastTarget = target;
+  const overlayOpen = !$('#scrim').hidden || !$('#checkout').hidden || !index.hidden;
+  const railOff = uS < 2.6 || uS > 195.5 || overlayOpen || (mobile && ((uS > 150.6 && uS < 168.6) || (uS > 172.6 && uS < 186.4))) || (introT < 0.9);
+  rail.classList.toggle('is-off', railOff);
+  rail.classList.toggle('is-idle', !railOff && now - lastMove > 1400);
+  cssVar(rail, '--p', (uS / U_MAX).toFixed(4));
   requestAnimationFrame(frame);
 }
 
