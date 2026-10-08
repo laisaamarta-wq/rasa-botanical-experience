@@ -79,7 +79,7 @@ const hots = HOTSPOTS.map((h) => {
   return { ...h, el };
 });
 
-const dropMarks = $$('.drops__i', stageEl);
+const dropMarks = $$('.drops__i', stageEl), stepEls = $$('.steps li', stageEl);
 const orbs = $$('.orb', stageEl), rings = $$('.orbs .ring', stageEl);
 orbs.forEach((o) => { const im = o.querySelector('img'); im.src = A[im.dataset.key]; });
 
@@ -94,7 +94,7 @@ const CHAPTERS = [
   [74, '06', 'Three drops', 'drops', 75.8],
   [101.5, '07', 'Four plants', 'plants', 106.8],
   [143, '08', 'The formula', 'formula', 152.4],
-  [158.4, '09', 'The ritual', 'ritual', 164.4],
+  [158.4, '09', 'The ritual', 'ritual', 160.6],
   [168, '10', 'Shop', 'shop', 176],
   [186, '11', 'Return to nature', 'end', 199.6],
 ];
@@ -165,6 +165,10 @@ function updateOverlays(u, S, introT, cueT = 0) {
       place(h.el, p[0] * W, p[1] * H); css(h.el, 'opacity', op.toFixed(2));
     }
   } else hots.forEach((h) => css(h.el, 'opacity', '0'));
+
+  // ritual: the step the camera is showing is the one in focus
+  const cur = u < 161.4 ? 0 : u < 163.3 ? 1 : 2;
+  stepEls.forEach((li, i) => li.classList.toggle('is-current', i === cur));
 
   // three drops counted as they land
   dropMarks.forEach((d, i) => d.classList.toggle('is-on', u >= 75 + DRP_LAND[i] * 11));

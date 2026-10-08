@@ -256,6 +256,11 @@ em { font-style: italic; }
 .inci dd { margin: 0; color: var(--cream-3); text-align: right; }
 .steps { list-style: none; margin: 26px 0 0; padding: 0; }
 .steps .ov { position: static; }
+.steps li > * { transition: opacity .6s var(--ease); }
+.steps li:not(.is-current) > * { opacity: .42; }
+/* desktop: a soft shade behind the left panels, so text reads over bright macro shots */
+@media (min-width: 761px) { .ov--panel::before { content: ''; position: absolute; inset: -18vh -12vw -18vh -14vw; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(8,11,9,.62), rgba(8,11,9,.3) 60%, rgba(8,11,9,0)); } }
 .steps li { display: grid; grid-template-columns: 50px 1fr; padding: 20px 0; border-top: 1px solid var(--line); }
 .steps li > span { font-family: var(--serif); font-size: 22px; color: var(--amber); }
 .steps b { display: block; font-family: var(--serif); font-weight: 400; font-size: 28px; line-height: 1.1; margin-bottom: 6px; }
