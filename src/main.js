@@ -166,8 +166,8 @@ function updateOverlays(u, S, introT, cueT = 0) {
     }
   } else hots.forEach((h) => css(h.el, 'opacity', '0'));
 
-  // ritual: the step the camera is showing is the one in focus
-  const cur = u < 161.4 ? 0 : u < 163.3 ? 1 : 2;
+  // ritual: one step in focus at a time
+  const cur = u < 161.6 ? 0 : u < 164.8 ? 1 : 2;   // the list is read one step at a time as you scroll
   stepEls.forEach((li, i) => li.classList.toggle('is-current', i === cur));
 
   // three drops counted as they land

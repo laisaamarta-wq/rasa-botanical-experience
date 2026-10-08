@@ -161,7 +161,7 @@ const PL = {
 // plate usage (u ranges) — drives texture streaming
 const USE = {
   A: [[0, 14]], B: [[8, 23]], C: [[18, 31]], D: [[27, 39]], E: [[34, 52], [184, 200]], F: [[43, 63], [166, 194]],
-  MAC: [[60, 75], [158, 166]], DRP: [[69, 91], [156, 164]], TT: [[87, 107], [143, 174]], IC: [[103, 118]], IM: [[112, 128]], IB: [[122, 138]],
+  MAC: [[60, 75]], DRP: [[69, 91]], TT: [[87, 107], [143, 174]], IC: [[103, 118]], IM: [[112, 128]], IB: [[122, 138]],
   IH: [[132, 148]], FIN: [[190, 200]],
 };
 const P = {
@@ -555,37 +555,21 @@ export function createStage({ canvas, stage, onProgressLoad }) {
         L0 = L(PL.TT, lerp(A.z, Pm.z, r1), lerp2(A.c, Pm.c, r1));
       }
       S.ttA = Math.sin(t * Math.PI) * 0.3;
-    } else if (u < 168) {                          // 10 THE RITUAL — the camera follows the three steps
-      const sx = mobile ? 0.5 : 0.66;
-      const B = mobile ? panelBottle() : { z: zf, c: ttAt(sx, zf) };
-      const tipF = [0.5, 0.66];                    // pipette tip inside the turntable frame
-      // the drops plate framed so its pipette sits where the bottle stood
-      const drpZ = mobile ? 0.95 : 1.08, drpFw = (Math.min(W / H, 1120 / 630) / (1120 / 630)) / drpZ;
-      const drpC = mobile ? [P.drpTip[0], 0.645] : [P.drpTip[0] - (sx - 0.5) * drpFw, 0.5];
-      const macC = mobile ? [0.62, 0.5] : [0.74, 0.52];
-      if (u < 159.7) {                             // step 01 · three drops: into the pipette; it lifts out, dripping
-        const t = seg(u, 158.4, 159.7), e = ic(t);
-        L0 = L(PL.TT, lerp(B.z, B.z * 2.6, e), lerp2(B.c, tipF, sm(t)), 0, 0.22 * e, [sx, 0.62]); S.ttA = 0;
-        L1 = L(PL.DRP, lerp(drpZ * 1.6, drpZ, oc(seg(t, 0.5, 1))), drpC, 0, 0.16 * (1 - oc(seg(t, 0.5, 1))));
-        S.mix = sm(seg(t, 0.52, 0.9)); S.drpT = 0;
-      } else if (u < 161.4) {                      // the first drop forms, falls, lands
-        const t = seg(u, 159.7, 161.4);
-        L0 = L(PL.DRP, drpZ * (1 + 0.05 * t), drpC); S.drpT = lerp(0, 0.3, t);
-      } else if (u < 163.3) {                      // step 02 · warm them: focus slips into warm, glowing oil
-        const t = seg(u, 161.4, 163.3);
-        L0 = L(PL.DRP, drpZ * 1.05, drpC, 0.03 * sm(seg(t, 0, 0.5))); S.drpT = 0.3;
-        L1 = L(PL.MAC, lerp(2.3, 2.0, oc(t)), macC, 0.03 * (1 - sm(seg(t, 0.3, 0.8))));
-        S.mix = sm(seg(t, 0.1, 0.55)); S.warm = 0.35 * S.mix; S.expo = 1 + 0.14 * bump(t, 0.4, 0.75, 1);
-      } else if (u < 164.8) {                      // step 03 · press: pull back to the whole bottle
-        const t = seg(u, 163.3, 164.8), e = oc(t);
-        L0 = L(PL.MAC, lerp(2.0, 1.6, e), macC, 0, 0.18 * sm(seg(t, 0.1, 0.6)));
-        L1 = L(PL.TT, lerp(B.z * 1.9, B.z, e), lerp2(tipF, B.c, e), 0, 0.2 * (1 - e)); S.ttA = 0;
-        S.mix = sm(seg(t, 0.15, 0.6)); S.warm = 0.35 * (1 - S.mix);
-      } else {                                     // the bottle holds; on a phone it grows back for the walk into the bog
-        const t = seg(u, 164.8, 168), out = mobile ? sm(seg(u, 166.4, 168)) : 0;
-        L0 = L(PL.TT, lerp(B.z, zf, out), lerp2(B.c, ttAt(sx, zf), out));
-        S.ttA = Math.sin(t * Math.PI) * 0.25;
+    } else if (u < 168) {                          // 10 THE RITUAL — one slow, warm shot while you read: no cuts
+      // the camera drifts in to the shoulder of the bottle in low morning light, the bottle turns a little in the
+      // hand and back to face you, then the camera eases out to the whole bottle for the walk into the bog
+      const t = seg(u, 158.4, 168), sx = mobile ? 0.5 : 0.66;
+      const k = ioc(seg(u, 158.4, 162.6)) * (1 - ioc(seg(u, 164.4, 168)));
+      if (!mobile) {
+        const zC = zf * 1.5, sa = W / H, fw = (sa > 1 ? 1 : sa) / zC, fh = (sa > 1 ? 1 / sa : 1) / zC;
+        const cC = [0.5 - (0.68 - 0.5) * fw, 0.4 - (0.56 - 0.5) * fh];      // frame point (shoulder) → screen (0.68, 0.56)
+        L0 = L(PL.TT, lerp(zf, zC, k), lerp2(ttAt(sx, zf), cC, k));
+      } else {
+        const B = panelBottle(), out = sm(seg(u, 166.4, 168));
+        L0 = L(PL.TT, lerp(B.z * (1 + 0.08 * k), zf, out), lerp2(B.c, ttAt(sx, zf), out));
       }
+      S.ttA = 0.5 * Math.sin(t * Math.PI);
+      S.warm = 0.1 + 0.22 * k; S.vig = 0.42 + 0.18 * k;
     } else if (u < 172) {                          // 11 SHOP — the bog grows back around the bottle (matched size and place)
       const t = seg(u, 168, 172);
       const sx = mobile ? 0.5 : 0.66;
@@ -677,7 +661,7 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     gl.uniform3fv(U.uFadeCol, S.fadeCol);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // keep upcoming dynamic frames warm
-    if ((u > 64 && u < 92) || (u > 150 && u < 163)) preloadDyn('DRP', 0, dyn.DRP.n - 1);
+    if (u > 64 && u < 92) preloadDyn('DRP', 0, dyn.DRP.n - 1);
     if (u > 80 && u < 175) preloadDyn('TT', 0, dyn.TT.n - 1);
     last = S;
     return S;
