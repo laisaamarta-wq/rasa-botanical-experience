@@ -47,14 +47,28 @@ if (!stage) { stageEl.style.background = `center/cover url(${A.f_bog_product})`;
 const css = (el, k, v) => { const c = el._c || (el._c = {}); if (c[k] !== v) { c[k] = v; el.style[k] = v; } };
 
 // ---------- overlays: every caption, label and panel lives on the film's clock ----------
-const overlays = $$('[data-u]', stageEl).map((el) => {
-  const [a, b] = el.dataset.u.split(',').map(Number);
+// On phones every text block lives in one of two zones (top or bottom of the screen). Only one block
+// may own a zone at a time: a block that arrives while another is still leaving waits for it, so text
+// never stacks, whatever the scroll speed or direction. `data-um` gives a phone-specific timing.
+const zoneOf = (el) => {
+  if (!mobile || el.classList.contains('pin') || el.closest('.co-list')) return null;
+  if (el.classList.contains('ov--source') || el.classList.contains('ov--formula')) return 'top';
+  if (el.matches('.ov--l, .ov--c, .ov--r, .ov--mid, .wt, .ov--hero, .ov--panel, .shopcard')) return 'bottom';
+  return null;
+};
+const overlays = $$('[data-u]', stageEl).filter((el) => !el.closest('.steps')).concat($$('.steps [data-u]', stageEl)).map((el) => {
+  const [a, b] = ((mobile && el.dataset.um) || el.dataset.u).split(',').map(Number);
   let pin = null;
   if (el.dataset.pin) { const [pl, xy] = el.dataset.pin.split(':'); pin = { pl, p: xy.split(',').map(Number) }; el.classList.add(el.dataset.side === 'l' ? 'is-left' : 'is-right'); }
-  const still = el.classList.contains('shopcard');
-  return { el, a, b, pin, still, live: false };
+  const still = el.classList.contains('shopcard') || (mobile && el.classList.contains('ov--panel'));
+  return { el, a, b, pin, still, live: false, zone: el.closest('.steps') ? null : zoneOf(el), op: 0 };
 });
+const cssVar = (el, k, v) => { const c = el._c || (el._c = {}); if (c[k] !== v) { c[k] = v; el.style.setProperty(k, v); } };
 const intro = { el: $('[data-k="intro"]', stageEl), cue: $('[data-k="cue"]', stageEl) };
+// the scroll cue is guidance, not a trap: a tap glides into the first scene, touch scrolling stays native
+intro.cue.addEventListener('click', () => goTo(14.6));
+// phones: product details fold away under one line in the buy sheet (always open on desktop)
+if (mobile) { const d = $('.shop-more'); if (d) d.open = false; }
 
 const hotRoot = $('#hot');
 const hots = HOTSPOTS.map((h) => {
@@ -112,10 +126,17 @@ addEventListener('pointerdown', (e) => { if (!index.hidden && !e.target.closest(
 
 function place(el, x, y, s = 1) { css(el, 'transform', `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) scale(${s.toFixed(3)})`); }
 
-function updateOverlays(u, S, introT) {
+function updateOverlays(u, S, introT, cueT = 0) {
   const { W, H } = stage ? stage.size : { W: innerWidth, H: innerHeight };
+  for (const o of overlays) o.op = Math.min(sm(seg(u, o.a, o.a + 1)), 1 - sm(seg(u, o.b - 1, o.b)));
+  if (mobile) for (const z of ['top', 'bottom']) {
+    let before = 0;                                   // overlays are in story order, so earlier blocks come first
+    for (const o of overlays) { if (o.zone !== z || o.op <= 0.001) continue; const own = o.op; o.op *= 1 - before; before = Math.max(before, own); }
+  }
   for (const o of overlays) {
-    const op = Math.min(sm(seg(u, o.a, o.a + 1)), 1 - sm(seg(u, o.b - 1, o.b)));
+    const op = o.op;
+    // label and title arrive first, the supporting copy follows a moment later (CSS reads --in)
+    cssVar(o.el, '--in', seg(u, o.a, o.a + 1.8).toFixed(2));
     if (op <= 0.001) {
       if (o.live !== null) { css(o.el, 'opacity', '0'); o.el.classList.remove('is-live'); o.live = null; }
       continue;
@@ -129,8 +150,10 @@ function updateOverlays(u, S, introT) {
   }
   // intro
   const io = Math.min(sm(seg(introT, 0.35, 1)), 1 - sm(seg(u, 0.6, 3.2)));
-  css(intro.el, 'opacity', io.toFixed(2)); css(intro.el, 'translate', `0 ${(-u * 8).toFixed(1)}px`);
-  css(intro.cue, 'opacity', io.toFixed(2));
+  css(intro.el, 'opacity', io.toFixed(2)); css(intro.el, 'translate', `0 ${(mobile ? u * 4 : -u * 8).toFixed(1)}px`);   // phones: sink away from the header, never into it
+  // the cue arrives once the first frame has settled and steps aside as soon as the story moves
+  const co = sm(clamp(cueT)) * (1 - sm(seg(u, 0.12, 1.1)));
+  css(intro.cue, 'opacity', co.toFixed(2)); intro.cue.classList.toggle('is-on', co > 0.4);
 
   // hotspots pinned to the bog
   if (S && u > 39 && u < 46) {
@@ -204,12 +227,12 @@ function frame(now) {
   const r = film.getBoundingClientRect();
   if (r.bottom > 0) {
     const S = stage ? stage.render(uS, now / 1000, introT, { motion, ahead: Math.abs(target - uS) }) : null;
-    updateOverlays(uS, S, introT);
+    updateOverlays(uS, S, introT, introStart ? (now - introStart - 2200) / 900 : 0);
   }
   hdr.classList.toggle('is-hidden', introT < 0.9 && uS < 1);
   setChapter(uS);
   // the chapter label steps aside for the intro, the shop card and the footer
-  chapter.classList.toggle('is-hidden', (uS > 171 && uS < 187) || uS < 2.8 || r.bottom < innerHeight - 4);
+  chapter.classList.toggle('is-hidden', (uS > 171 && uS < 187) || (mobile && uS > 150.6 && uS < 168.6) || uS < 2.8 || r.bottom < innerHeight - 4);
   stageEl.classList.toggle('can-drag', !!canDrag() && !mobile);
   css(progressBar, 'transform', `scaleX(${(uS / U_MAX).toFixed(4)})`);
   requestAnimationFrame(frame);
@@ -247,6 +270,8 @@ const fromHash = CHAPTERS.find((c) => '#' + c[3] === location.hash);
 if (fromHash) { history.scrollRestoration = 'manual'; requestAnimationFrame(() => goTo(fromHash[4], true)); }
 
 addEventListener('resize', () => stage?.resize());
+// phones: the stage follows the visible viewport (browser bars, safe areas), so keep the canvas in step
+if ('ResizeObserver' in window) new ResizeObserver(() => stage?.resize()).observe(stageEl);
 initShop();
 requestAnimationFrame(frame);
 window.__rasa = { get u() { return uS; }, U_MAX, goTo, uToD, dToU, get stats() { return stage?.stats; } };

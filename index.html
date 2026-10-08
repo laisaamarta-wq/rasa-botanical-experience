@@ -50,11 +50,11 @@
 
         <!-- 01 ENTER THE WORLD -->
         <div class="ov ov--intro" data-k="intro">
-          <p class="eyebrow">First Light · botanical face oil from a northern bog</p>
+          <p class="eyebrow"><span class="eb-a">First Light · botanical face oil</span> <span class="eb-b">from a northern bog</span></p>
           <h1 class="ov__brand">RASA</h1>
           <p class="ov__tag">Collected before sunrise.</p>
         </div>
-        <div class="ov cue" data-k="cue"><span></span>Scroll</div>
+        <button class="cue" data-k="cue" type="button" aria-label="Scroll to explore the story"><span class="cue__t">Scroll to explore</span><span class="cue__line" aria-hidden="true"><i></i></span></button>
         <div class="ov ov--c" data-u="3,8.6"><p class="ov__line">Before sunrise, the bog is made of water.</p></div>
 
         <!-- 02 THE SOURCE -->
@@ -86,7 +86,7 @@
           <h2 class="ov__h">A single drop of glass.</h2>
           <p class="body">Thick-walled and heavy in the hand, shaped after the dew it is named for. Golden oil, a glass pipette, nothing else.</p>
         </div>
-        <div class="ov pin" data-u="66,70.4" data-pin="MAC:0.58,0.905" data-side="l">
+        <div class="ov pin desk-only" data-u="66,70.4" data-pin="MAC:0.58,0.905" data-side="l">
           <span class="pin__dot"></span><span class="pin__line"></span>
           <span class="pin__txt"><b>Frosted, not printed</b><span>The name is etched into the glass.</span></span>
         </div>
@@ -112,7 +112,7 @@
           <li class="ov pin" data-u="97.8,101.2" data-pin="TT:0.6,0.385" data-side="r"><span class="pin__dot"></span><span class="pin__line"></span><span class="pin__txt"><b>Paper band</b><span>The only print on the bottle.</span></span></li>
           <li class="ov pin" data-u="98.8,101.6" data-pin="TT:0.27,0.62" data-side="l"><span class="pin__dot"></span><span class="pin__line"></span><span class="pin__txt"><b>The drop</b><span>Thick clear glass. Shaped after dew.</span></span></li>
         </ul>
-        <div class="ov ov--l mob-only" data-u="96.2,101.6"><p class="eyebrow">The object</p><p class="ov__line ov__line--s">Turned birch cap.<br>A paper band.<br>Thick glass, shaped after dew.</p></div>
+        <div class="ov ov--l mob-only" data-u="97,101.6"><p class="eyebrow">The object</p><p class="ov__line ov__line--s">Turned birch cap.<br>A paper band.<br>Thick glass, shaped after dew.</p></div>
 
         <!-- 07 RETURN TO NATURE -->
         <div class="ov ov--l" data-u="106.2,109.7"><p class="eyebrow">Back to the source</p><p class="ov__line">The amber comes from here.</p></div>
@@ -172,7 +172,7 @@
         </div>
 
         <!-- 11 SHOP — in the landscape, not a separate store -->
-        <div class="ov shopcard" id="shop-card" data-u="172.4,186.2" role="region" aria-label="Buy First Light">
+        <div class="ov shopcard" id="shop-card" data-u="172.4,186.2" data-um="174.4,186.2" role="region" aria-label="Buy First Light">
           <p class="eyebrow">Shop</p>
           <h2 class="shopcard__name">First Light</h2>
           <p class="shopcard__kind">Botanical face oil</p>
@@ -190,6 +190,8 @@
             </div>
             <button class="btn btn--amber btn--wide" id="addBtn">Add to bag · <span id="addPrice">€84</span></button>
           </div>
+          <details class="shop-more" open>
+          <summary>Details · ingredients, use, delivery</summary>
           <ul class="facts">
             <li><b>Contains</b>4 plants · squalane · vitamin E</li>
             <li><b>Use</b>3 drops, morning or night</li>
@@ -197,6 +199,7 @@
             <li><b>Delivery</b>EU 2–4 days · free over €120</li>
           </ul>
           <p class="fine">Concept brand. Demo checkout: no payment is taken.</p>
+          </details>
         </div>
 
         <!-- 12 RETURN TO NATURE -->

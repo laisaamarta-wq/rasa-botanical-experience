@@ -427,7 +427,7 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       const panX = mobile ? lerp(0.22, P.bottle[0], ioc(seg(u, 38, 45.5))) : 0.5;
       const push = ioc(seg(u, 44.5, 47.5)), settle = oc(seg(u, 47.5, 53));
       const z = 1 + 0.04 * seg(u, 39, 44.5) + 0.58 * push - 0.24 * settle + 0.03 * seg(u, 53, 58);
-      const c = [panX, lerp(0.46, 0.31, ioc(seg(u, 44.5, 53)))];
+      const c = [panX, lerp(0.46, mobile && H / W < 1.9 ? 0.37 : 0.31, ioc(seg(u, 44.5, 53)))];   // short phones: bottle sits higher, above the title
       const mb = 0.07 * bump(u, 44.3, 46, 48);
       L0 = L(PL.E, z, c, 0, mb, [0.5, 0.42]); L1 = L(PL.F, z, c);
       S.mode = 2; S.wipe = sm(seg(u, 47, 50.4)); S.mix = sm(seg(u, 50, 51.2));
@@ -464,6 +464,10 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     } else if (u < 101.5) {                        // the bottle turns
       const t = seg(u, 95.5, 101.5);
       L0 = L(PL.TT, zf, ttAt(0.5, zf));
+      if (mobile) {                                // phones: the bottle lifts to make room for the caption under it
+        const r = sm(seg(u, 96.2, 97.2)) * (1 - sm(seg(u, 100.7, 101.5)));
+        L0 = L(PL.TT, lerp(zf, zf * 0.84, r), lerp2(ttAt(0.5, zf), [0.5, 0.67], r));
+      }
       S.ttA = t < 0.33 ? Math.sin(t / 0.33 * Math.PI / 2) : t < 0.8 ? Math.cos((t - 0.33) / 0.47 * Math.PI) : -1 + seg(t, 0.8, 1);
     } else if (u < 106) {                          // 07 RETURN TO NATURE — closer, into the amber, until it is sunlight
       const t = seg(u, 101.5, 106), e = ic(t);
@@ -511,7 +515,9 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       L0 = L(PL.TT, zf, ttAt(mobile ? 0.5 : lerp(0.64, 0.66, t), zf));
       if (mobile) {                                // on a phone the bottle steps up and back to make room for the panel
         const r = sm(seg(u, 151, 152.6)) * (1 - sm(seg(u, 166.4, 168)));
-        L0 = L(PL.TT, lerp(zf, zf * 0.56, r), lerp2(ttAt(0.5, zf), [0.5, 1.2], r));
+        // size and place the bottle in the space between the header and the panel (bottle = 0.77 of the frame, centre 0.475)
+        const bh = H / W < 1.9 ? 0.27 : 0.33, zr = bh / 0.77, ty = 64 / H + bh / 2 + 0.015;
+        L0 = L(PL.TT, lerp(zf, zr, r), lerp2(ttAt(0.5, zf), [0.5, 0.475 + (0.5 - ty) / zr], r));
       }
       S.ttA = Math.sin(t * Math.PI * 2) * 0.35;
     } else if (u < 172) {                          // 11 SHOP — the bog grows back around the bottle (matched size and place)
