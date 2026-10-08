@@ -5,7 +5,7 @@
 //   mode 1 — dew lens: the next world is seen through a drop of water/sap that grows until it is the world
 //   mode 2 — emergence: the bottle grows out of the moss, revealed from the ground up
 // Everything is a pure function of one number, u (0 → U_MAX), driven by native scroll.
-import { loadImage, loadFrame, forget, isMobile } from './assets.js';
+import { A, loadImage, loadFrame, forget, isMobile } from './assets.js';
 import meta from './assets/meta.json';
 
 export const U_MAX = 200;
@@ -312,6 +312,14 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     await Promise.all(['B', 'C'].map(ensure)); upload(0); upload(0); onProgressLoad?.(1);
     tex.M = makeTex(await loadImage('f_mask'));
   })();
+  // desktop: once the first scene is up, quietly warm the HTTP cache with the remaining plates,
+  // so a chapter jump or a fast scroll doesn't wait on the network (phones load on demand to save data)
+  if (!mobile) firstReady.then(() => setTimeout(async () => {
+    for (const pl of Object.values(PL)) {
+      if (pl.dyn || !A[pl.src]) continue;
+      try { await fetch(A[pl.src], { priority: 'low' }); } catch {}
+    }
+  }, 2500));
 
   // ---------- geometry ----------
   let W = 1, H = 1, dpr = 1;

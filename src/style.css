@@ -192,6 +192,9 @@ em { font-style: italic; }
 
 /* ingredient names */
 .wt { left: var(--gutter); bottom: 12vh; width: min(460px, 86vw); }
+/* a soft shade behind ingredient captions so they read on bright plates (birch bark, mist) */
+.wt::before { content: ''; position: absolute; inset: -60px -90px -50px -60px; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(8,11,9,.55), rgba(8,11,9,.28) 55%, rgba(8,11,9,0)); }
 .wt .eyebrow { display: flex; gap: 14px; align-items: center; }
 .wt__n { color: var(--accent, var(--amber)); }
 .wt__h { font-family: var(--serif); font-weight: 400; font-size: clamp(52px, 6vw, 92px); line-height: .95; margin: 0 0 18px; text-shadow: 0 2px 40px rgba(0,0,0,.4); }
@@ -343,6 +346,7 @@ em { font-style: italic; }
   .desk-only { display: none; }
   .final__cta { margin-top: 30px; padding: 0 16px; }
   .final__cta .btn { flex: 1 1 100%; }
+  .wt::before { inset: -50px -16px -40px -16px; background: radial-gradient(closest-side, rgba(8,11,9,.62), rgba(8,11,9,.3) 60%, rgba(8,11,9,0)); }
   .film { height: 1600vh; }
   .ov--intro { left: 16px; right: 16px; bottom: auto; top: 12vh; }
   .ov__brand { font-size: 56px; letter-spacing: .42em; }
@@ -393,3 +397,12 @@ em { font-style: italic; }
 }
 @media (prefers-reduced-motion: reduce) { .grain, .cue span, .hs__dot::before { animation: none; } }
 [hidden] { display: none !important; }
+/* small phones: the buy card stays compact so the bottle stays in view */
+@media (max-width: 400px) {
+  .shopcard { padding: 14px 14px 12px; max-height: 58%; }
+  .shopcard__name { font-size: 32px; }
+  .shopcard__kind { margin-top: 2px; }
+  .shopcard .fine { display: none; }
+  .facts li { padding: 5px 0; font-size: 11px; }
+  .facts b { font-size: 10px; }
+}
