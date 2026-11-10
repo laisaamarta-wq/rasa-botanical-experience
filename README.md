@@ -41,6 +41,18 @@ The whole site is now **one camera move**: a single scroll-driven film with no s
   - **ground mist:** it rises and clears with a soft, moving edge (moss → birch, and the ending where the bottle disappears into the mist)
   - focus pulls, dew lens and amber → light are unchanged.
 
+## v3.1 — smooth scroll pass
+
+Scrolling felt jerky: frames jumped instead of gliding. Three causes, all fixed:
+
+| Problem | Fix |
+|---|---|
+| The camera followed the scroll with a first-order lag, so every mouse-wheel notch (Safari and Firefox jump a whole notch at once) kicked the camera from rest to full speed in one frame | A **critically damped spring** on the scroll distance (`follow()` in `main.js`): the camera eases into and out of motion, and a run of notches becomes one glide. In a simulated wheel run the frame-to-frame jumps in camera speed drop about 10× (discrete wheel) and 3–4× (smooth wheel) |
+| The shortest transitions got 6vh of scroll per unit, so one notch leapt through a third of a lens or a dive | They now get 7.5–8vh; holds unchanged |
+| Images were decoded on the main thread at the moment they went to the GPU: 65–130 ms stalls for each 2.5K plate and 10–14 ms for every frame of the turning bottle and the falling drops (measured in headless Chromium) | All film images are decoded **off the main thread** (`createImageBitmap`) and uploaded as bitmaps (13–20 ms per plate, 3–4 ms per frame). Plates that are not needed yet wait for a calm moment to upload. The bottle and drop sequences keep a small decoded window around the current frame |
+
+Also: no layout reads inside the frame loop (geometry is measured on resize), a pixel budget for the canvas, and a frame-rate governor that lowers the render scale a step at a time if a device can't hold a steady frame rate.
+
 ## v3 — UX, motion & journey audit
 
 I went through the film as a visitor several times (normal wheel pace, impatient flicks, rapid direction changes, full reverse, stopping in the middle of transitions, phone), then fixed what got in the way.

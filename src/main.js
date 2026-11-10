@@ -13,17 +13,20 @@ const mobile = isMobile();
 // How much scroll each part of the film gets (vh of scroll per unit of film time).
 // Optical transitions are SHORT (6), camera moves and discoveries MEDIUM (8–9),
 // the moments that carry the story LONG (11–14): the four plants, the product reveal and its hold.
+// v3.1: the shortest optical transitions had so little scroll (6vh per unit) that one mouse-wheel notch
+// leapt through a third of a transition in a single step. They now get 7.5–8, so every transition takes
+// several calm steps; the long holds are unchanged.
 const SEGS = [
   [0, 3, 10], [3, 9, 8],                       // 01 enter: let the first frame land
-  [9, 14, 7], [14, 19, 9], [19, 23, 7], [23, 27, 9], [27, 30.5, 6],   // 02 the source: lens · leaf · lens · heather · push
-  [30.5, 35, 9], [35, 39, 7], [39, 45, 12],    // 03 cloudberry · pull back · the bog and its four plants
+  [9, 14, 8], [14, 19, 9], [19, 23, 8], [23, 27, 9], [27, 30.5, 7.5], // 02 the source: lens · leaf · lens · heather · push
+  [30.5, 35, 9], [35, 39, 8], [39, 45, 12],    // 03 cloudberry · pull back · the bog and its four plants
   [45, 51, 10], [51, 58, 14],                  // 04 the bottle grows out of the moss · HERO HOLD
-  [58, 62.5, 6], [62.5, 70, 9], [70, 75, 7],   // 05 into the glass · macro · follow the pipette
-  [75, 86, 9], [86, 90, 6], [90, 95.5, 8], [95.5, 101.5, 9],          // 06 three drops · dive · reveal · turn
-  [101.5, 106, 6], [106, 113.5, 9], [113.5, 117, 6], [117, 124, 8],    // 07 amber → light · cloudberry · tilt · moss
-  [124, 129, 6], [129, 133, 8], [133, 137, 6], [137, 143, 8],          //    mist · birch · lens · heather
+  [58, 62.5, 7.5], [62.5, 70, 9], [70, 75, 8], // 05 into the glass · macro · follow the pipette
+  [75, 86, 9], [86, 90, 7.5], [90, 95.5, 8], [95.5, 101.5, 9],        // 06 three drops · dive · reveal · turn
+  [101.5, 106, 7.5], [106, 113.5, 9], [113.5, 117, 7.5], [117, 124, 8], // 07 amber → light · cloudberry · tilt · moss
+  [124, 129, 7.5], [129, 133, 8], [133, 137, 7.5], [137, 143, 8],      //    mist · birch · lens · heather
   [143, 151, 8], [151, 158.4, 9], [158.4, 168, 9],                     // 08 formula · INCI · 09 ritual
-  [168, 172, 6], [172, 186, 8], [186, 200, 8],                         // 10 shop · 11 return
+  [168, 172, 7.5], [172, 186, 8], [186, 200, 8],                       // 10 shop · 11 return
 ];
 const SCALE = mobile ? 0.8 : 1;
 const D0 = []; let TOTAL = 0;
@@ -184,7 +187,7 @@ function updateOverlays(u, S, introT, cueT = 0) {
       const f = seg(u, FORMULA_LAND[i] - 0.6, FORMULA_LAND[i]), g = f * f;               // gravity: slow start, fast landing
       const bob = Math.sin(t * 0.9 + i * 1.7) * 5 * (1 - f);
       const x = lerp(home[i][0] * W, L[0] * W, g), y = lerp(home[i][1] * H + (1 - tin) * 26, L[1] * H, g) + bob;
-      const w = o.offsetWidth || 90, h = o.offsetHeight || 115;
+      const w = o._w || 90, h = o._h || 115;
       css(o, 'transform', `translate3d(${(x - w / 2).toFixed(1)}px,${(y - h * 0.62).toFixed(1)}px,0) scale(${(lerp(0.7, 1, tin) * lerp(1, 0.3, g)).toFixed(3)})`);
       css(o, 'opacity', (tin * (1 - sm(seg(f, 0.82, 1)))).toFixed(2));
       css(o, 'filter', `blur(${((1 - tin) * 6).toFixed(1)}px)`);
@@ -209,26 +212,40 @@ addEventListener('pointerup', endDrag);
 addEventListener('pointercancel', endDrag);
 
 // ---------- clock ----------
-// uS follows the scroll position with a little inertia (the camera has weight); it never runs ahead of the user.
+// The camera follows the scroll position like an object with weight: a critically damped spring on the
+// scroll distance. It eases into motion and out of it, so a mouse wheel's separate notches (Safari and
+// Firefox jump a whole notch at once) become one continuous glide instead of a kick per notch.
+// It never overshoots, so it never runs ahead of the user.
 // `motion` is how fast the camera is actually moving: motion blur follows it, so a stopped camera is a sharp camera.
 const rail = $('#rail');
 let lastMove = 0, lastTarget = 0;
 // a tap on the rail's hint glides one step further into the story (normal scrolling is never taken over)
 $('#railHint').addEventListener('click', () => scrollBy({ top: innerHeight * 0.85, behavior: reduced ? 'auto' : 'smooth' }));
-let uS = 0, introStart = 0, introT = 0, last = performance.now(), motion = QA ? 1 : 0.3, snapNext = false;
+let uS = 0, dS = 0, dV = 0, introStart = 0, introT = 0, last = performance.now(), motion = QA ? 1 : 0.3, snapNext = false;
+const GLIDE = mobile ? 0.2 : 0.3;            // seconds to catch up with the scroll (touch already has its own momentum)
+function follow(d, target, dt) {             // critically damped spring (Game Programming Gems 4, "SmoothDamp")
+  const om = 2 / GLIDE, x = om * dt, e = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const ch = d - target, tmp = (dV + om * ch) * dt;
+  dV = (dV - om * tmp) * e;
+  let n = target + (ch + tmp) * e;
+  if ((target - d > 0) === (n > target)) { n = target; dV = 0; }
+  return n;
+}
 stage?.firstReady.then(() => { introStart = performance.now(); });
-const filmProgress = () => {
-  const r = film.getBoundingClientRect();
-  return clamp(-r.top / Math.max(1, r.height - stageEl.clientHeight));
-};
+// geometry is measured on resize, never inside the frame loop (a layout read per frame forces the
+// browser to recalculate the page while it should be drawing)
+const geo = { top: 0, h: 1, stage: 1 };
+function measure() { geo.top = film.getBoundingClientRect().top + scrollY; geo.h = film.offsetHeight; geo.stage = stageEl.clientHeight; orbs.forEach((o) => { o._w = o.offsetWidth || 90; o._h = o.offsetHeight || 115; }); }
+measure();
+const filmProgress = () => clamp((scrollY - geo.top) / Math.max(1, geo.h - geo.stage));
 function frame(now) {
   const rdt = Math.min(0.5, Math.max(0.001, (now - last) / 1000)); last = now;
   const dt = Math.min(0.05, rdt);
-  const k = reduced || QA ? 1 : 1 - Math.exp(-dt * 7);
-  const target = dToU(filmProgress() * TOTAL);
-  const prev = uS, cut = snapNext || Math.abs(target - uS) > 40;
-  uS = cut ? target : uS + (target - uS) * k;
-  if (Math.abs(target - uS) < 0.002) uS = target;
+  const dT = filmProgress() * TOTAL, target = dToU(dT);
+  const prev = uS, cut = snapNext || reduced || QA || Math.abs(target - uS) > 40;
+  if (cut) { dS = dT; dV = 0; } else dS = follow(dS, dT, dt);
+  if (Math.abs(dT - dS) < 0.01) { dS = dT; dV = 0; }
+  uS = dToU(dS);
   snapNext = false;
   if (!QA && !cut) {                                            // a cut is not camera movement
     const vel = Math.abs(uS - prev) / dt;                       // film units per second
@@ -237,9 +254,9 @@ function frame(now) {
   }
   if (introStart) introT = reduced || QA ? 1 : clamp((now - introStart) / 2400);
   if (stage && !dragging) stage.drag.v *= 0.93;
-  const r = film.getBoundingClientRect();
+  const r = { bottom: geo.top + geo.h - scrollY };
   if (r.bottom > 0) {
-    const S = stage ? stage.render(uS, now / 1000, introT, { motion, ahead: Math.abs(target - uS) }) : null;
+    const S = stage ? stage.render(uS, now / 1000, introT, { motion, ahead: Math.abs(target - uS), speed: Math.abs(uS - prev) / dt }) : null;
     updateOverlays(uS, S, introT, introStart ? (now - introStart - 2200) / 900 : 0);
   }
   hdr.classList.toggle('is-hidden', introT < 0.9 && uS < 1);
@@ -260,7 +277,7 @@ function frame(now) {
 }
 
 // ---------- navigation: every link is a position in the film ----------
-const yFor = (u) => film.offsetTop + (uToD(clamp(u, 0, U_MAX)) / TOTAL) * (film.offsetHeight - stageEl.clientHeight);
+const yFor = (u) => geo.top + (uToD(clamp(u, 0, U_MAX)) / TOTAL) * (geo.h - geo.stage);
 function goTo(u, instant = false) {
   const top = yFor(u);
   const far = Math.abs(top - scrollY) > innerHeight * 4;
@@ -290,9 +307,10 @@ document.addEventListener('click', (e) => {
 const fromHash = CHAPTERS.find((c) => '#' + c[3] === location.hash);
 if (fromHash) { history.scrollRestoration = 'manual'; requestAnimationFrame(() => goTo(fromHash[4], true)); }
 
-addEventListener('resize', () => stage?.resize());
+addEventListener('resize', () => { measure(); stage?.resize(); });
 // phones: the stage follows the visible viewport (browser bars, safe areas), so keep the canvas in step
-if ('ResizeObserver' in window) new ResizeObserver(() => stage?.resize()).observe(stageEl);
+if ('ResizeObserver' in window) { const ro = new ResizeObserver(() => { measure(); stage?.resize(); }); ro.observe(stageEl); ro.observe(film); }
+document.fonts?.ready.then(measure);
 initShop();
 requestAnimationFrame(frame);
 window.__rasa = { get u() { return uS; }, U_MAX, goTo, uToD, dToU, get stats() { return stage?.stats; } };

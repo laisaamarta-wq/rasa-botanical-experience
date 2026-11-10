@@ -5,7 +5,7 @@
 //   mode 1 — dew lens: the next world is seen through a drop of water/sap that grows until it is the world
 //   mode 2 — emergence: the bottle grows out of the moss, revealed from the ground up
 // Everything is a pure function of one number, u (0 → U_MAX), driven by native scroll.
-import { A, loadImage, loadFrame, forget, isMobile } from './assets.js';
+import { A, loadImage, loadFrame, prefetchFrame, isMobile } from './assets.js';
 import meta from './assets/meta.json';
 
 export const U_MAX = 200;
@@ -234,6 +234,7 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
     if (aniso && mips) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+    img.close?.();                                  // a decoded bitmap is no longer needed once it is on the GPU
     return t;
   }
   for (const [id, pl] of Object.entries(PL)) {
@@ -256,61 +257,84 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     try { const img = await loadImage(PL[id].src); pending.push([id, img]); }
     catch (e) { loading[id] = false; }
   }
-  // GPU uploads (with mipmaps) are the expensive part: at most one per frame, nearest plate first,
-  // so a fast scroll never stalls a frame on several uploads at once
+  // GPU uploads (with mipmaps) are the expensive part: at most one per frame, nearest plate first.
+  // A plate that is still a while away waits for a calm moment (the camera slow or resting), so the
+  // upload never lands in the middle of a moving shot; only a plate that is about to be needed goes up at once.
   const pending = [];
-  function upload(u) {
+  function upload(u, calm = true) {
     if (!pending.length) return;
     pending.sort((a, b) => distTo(a[0], u) - distTo(b[0], u));
+    if (!calm && distTo(pending[0][0], u) > 3.5) return;
     const [id, img] = pending.shift();
     tex[id] = makeTex(img); loading[id] = false; stats.uploads++;
   }
-  const stats = { uploads: 0, holds: 0 };
-  function stream(u, ahead = 0) {
+  const stats = { uploads: 0, holds: 0, quality: 1 };
+  function stream(u, ahead = 0, calm = true) {
     // look further ahead while the camera is still travelling toward the scroll position
     const look = (mobile ? 14 : 22) + Math.min(20, ahead);
     for (const id of Object.keys(USE)) {
       if (PL[id].dyn) continue;
       if (rangesNear(id, u, 4 + Math.min(20, ahead), look)) ensure(id);
     }
-    upload(u);
+    upload(u, calm);
     const live = Object.keys(tex).filter((k) => tex[k] && PL[k] && !PL[k].dyn);
     if (live.length > BUDGET) {
       live.sort((a, b) => distTo(b, u) - distTo(a, u));
       for (const id of live.slice(0, live.length - BUDGET)) {
         if (rangesNear(id, u, 4, 14)) continue;
-        gl.deleteTexture(tex[id]); delete tex[id]; forget(PL[id].src);
+        gl.deleteTexture(tex[id]); delete tex[id];
       }
     }
   }
 
-  // dynamic plates: one texture each, re-uploaded when the frame changes
+  // dynamic plates (the turning bottle, the falling drops): one texture each, refreshed when the frame changes.
+  // Frames are decoded off the main thread into a small window around the current frame, so scrubbing
+  // through them is a cheap GPU copy per step, never a decode. Frames far from the camera are released.
   const dyn = {
-    TT: { n: meta.tt_frames, prefix: 'tt_', cur: -1, t: null, frames: [] },
-    DRP: { n: meta.drp ? meta.drp.frames : 0, prefix: 'drp_', cur: -1, t: null, frames: [] },
+    TT: { n: meta.tt_frames, prefix: 'tt_', cur: -1, t: null, bm: [] },
+    DRP: { n: meta.drp ? meta.drp.frames : 0, prefix: 'drp_', cur: -1, t: null, bm: [] },
   };
+  const WIN = mobile ? 5 : 9;
+  const fkey = (d, j) => d.prefix + String(j).padStart(2, '0');
+  function want(d, j) {
+    if (j < 0 || j >= d.n || d.bm[j]) return;
+    d.bm[j] = 'loading';
+    loadFrame(fkey(d, j)).then((im) => { if (d.bm[j] === 'loading') d.bm[j] = im; else im.close?.(); }, () => { d.bm[j] = undefined; });
+  }
+  function keepNear(d, i) {
+    for (let r = 0; r <= WIN; r++) { want(d, i + r); want(d, i - r); }
+    for (let j = 0; j < d.n; j++) {
+      const b = d.bm[j];
+      if (b && Math.abs(j - i) > WIN * 2) { if (b !== 'loading') b.close?.(); d.bm[j] = undefined; }
+    }
+  }
   function dynFrame(id, i) {
     const d = dyn[id]; if (!d.n) return black;
     i = clamp(Math.round(i), 0, d.n - 1);
-    // nearest loaded frame, loading as we go
+    keepNear(d, i);
+    // the nearest decoded frame (the exact one almost always; a neighbour while scrubbing very fast)
     let k = -1;
-    for (let r = 0; r < d.n; r++) {
-      for (const j of [i + r, i - r]) {
-        if (j < 0 || j >= d.n) continue;
-        if (!d.frames[j]) { d.frames[j] = 'loading'; loadFrame(d.prefix + String(j).padStart(2, '0')).then((im) => (d.frames[j] = im)); }
-        if (d.frames[j] && d.frames[j] !== 'loading' && k < 0) k = j;
-      }
-      if (k >= 0) break;
+    for (let r = 0; r < d.n && k < 0; r++) for (const j of [i + r, i - r]) {
+      const b = d.bm[j]; if (b && b !== 'loading') { k = j; break; }
     }
     if (k < 0) return d.t || black;
     if (k !== d.cur) {
-      if (!d.t) d.t = makeTex(d.frames[k], false);
-      else { gl.bindTexture(gl.TEXTURE_2D, d.t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, d.frames[k]); }
+      const b = d.bm[k];
+      if (!d.t) {
+        d.t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, d.t);
+        for (const [pn, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT], [gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT]]) gl.texParameteri(gl.TEXTURE_2D, pn, v);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, b); d.w = b.width; d.h = b.height;
+      } else {
+        gl.bindTexture(gl.TEXTURE_2D, d.t);
+        if (b.width === d.w && b.height === d.h) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        else { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, b); d.w = b.width; d.h = b.height; }
+      }
       d.cur = k;
     }
     return d.t;
   }
-  function preloadDyn(id, from, to) { const d = dyn[id]; for (let j = from; j <= to; j++) if (j >= 0 && j < d.n && !d.frames[j]) { d.frames[j] = 'loading'; loadFrame(d.prefix + String(j).padStart(2, '0')).then((im) => (d.frames[j] = im)); } }
+  // before a sequence starts: fetch all its (small, compressed) frames and decode the first ones
+  function preloadDyn(id, at) { const d = dyn[id]; for (let j = 0; j < d.n; j++) prefetchFrame(fkey(d, j)); keepNear(d, at); }
 
   // first scene first
   const firstReady = (async () => {
@@ -328,14 +352,31 @@ export function createStage({ canvas, stage, onProgressLoad }) {
   }, 2500));
 
   // ---------- geometry ----------
-  let W = 1, H = 1, dpr = 1;
+  // Resolution: sharp, but never so many pixels that the GPU drops frames. The canvas is capped at a
+  // pixel budget, and if the device still can't hold a steady frame rate the render scale steps down
+  // (the DOM text stays crisp; the photographic plates barely change).
+  let W = 1, H = 1, dpr = 1, quality = 1;
+  const MAXPX = mobile ? 2.6e6 : 3.6e6;
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, mobile ? 2 : 1.75);
+    const want = Math.min(window.devicePixelRatio || 1, mobile ? 2 : 1.75);
     W = stage.clientWidth; H = stage.clientHeight;
-    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    dpr = Math.max(Math.min(1, want), Math.min(want * quality, Math.sqrt(MAXPX / Math.max(1, W * H))));
+    const cw = Math.round(W * dpr), ch = Math.round(H * dpr);
+    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     gl.viewport(0, 0, canvas.width, canvas.height);
   }
   resize();
+  // frame-rate governor: watches the real frame interval and lowers the render scale (down only, a step
+  // at a time) when frames keep arriving late. Pauses (tab hidden, debugger) are ignored.
+  let gLast = 0, gAvg = 0, gBad = 0, gN = 0;
+  function govern(time) {
+    const iv = gLast ? (time - gLast) * 1000 : 0; gLast = time;
+    if (!iv || iv > 120) return;
+    gN++; gAvg = gAvg ? gAvg + (iv - gAvg) * 0.05 : iv;
+    if (gN < 90) return;                                     // let the first second settle (loading, shader warm-up)
+    gBad = gAvg > 21 ? gBad + 1 : Math.max(0, gBad - 2);
+    if (gBad > 75 && quality > 0.56) { quality = Math.max(0.55, quality * 0.82); gBad = 0; gAvg = 0; resize(); stats.quality = quality; }
+  }
   const pt = (pl, u, v) => (pl.crop ? [(u - pl.crop.mx0) / pl.crop.mcw, v] : pl.ext ? [u, pl.ext.y0 + v * pl.ext.sy] : [u, v]);
   function cover(pl, zoom, c) {
     const ta = pl.w / pl.h, sa = W / H;
@@ -614,7 +655,8 @@ export function createStage({ canvas, stage, onProgressLoad }) {
   }
   function render(u, time, intro, opt = {}) {
     const motion = opt.motion ?? 1;
-    stream(u, opt.ahead || 0);
+    stream(u, opt.ahead || 0, (opt.speed ?? 0) < 1.2);
+    govern(time);
     const S = compose(u, time, intro);
     const bind = (unit, Lr, which) => {
       if (!Lr) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, black); return null; }
@@ -661,8 +703,8 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     gl.uniform3fv(U.uFadeCol, S.fadeCol);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // keep upcoming dynamic frames warm
-    if (u > 64 && u < 92) preloadDyn('DRP', 0, dyn.DRP.n - 1);
-    if (u > 80 && u < 175) preloadDyn('TT', 0, dyn.TT.n - 1);
+    if (u > 64 && u < 75) preloadDyn('DRP', 0);
+    if ((u > 80 && u < 87) || (u > 138 && u < 146.2)) preloadDyn('TT', meta.tt_center);
     last = S;
     return S;
   }

@@ -10,25 +10,37 @@ for (const [path, url] of Object.entries(all)) {
 
 export const isMobile = () => matchMedia('(max-width: 760px), (max-aspect-ratio: 4/5)').matches;
 
-const cache = new Map();
-export function loadImage(key) {
-  if (cache.has(key)) return cache.get(key);
-  const p = new Promise((res, rej) => {
+// Images for the film are decoded OFF the main thread (createImageBitmap), so handing one to the GPU
+// never stalls a frame on a decode. Only the compressed file is cached; every call returns a fresh,
+// already-decoded bitmap that the caller closes after upload. Browsers without it fall back to <img>.
+const bitmaps = typeof createImageBitmap === 'function';
+const blobs = new Map();
+const fetchBlob = (key) => {
+  if (!blobs.has(key)) {
+    const p = fetch(A[key]).then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); });
+    p.catch(() => blobs.delete(key));
+    blobs.set(key, p);
+  }
+  return blobs.get(key);
+};
+function viaImg(key) {
+  return new Promise((res, rej) => {
     const im = new Image();
     im.decoding = 'async';
     im.onload = () => (im.decode ? im.decode().catch(() => {}) : Promise.resolve()).then(() => res(im));
     im.onerror = rej;
     im.src = A[key];
   });
-  cache.set(key, p);
-  return p;
 }
-
-export const forget = (key) => cache.delete(key);
-// film frames: no forced decode, the GPU upload decodes on demand
-export function loadFrame(key) {
-  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = A[key]; });
+export async function loadImage(key) {
+  if (!bitmaps) return viaImg(key);
+  try { return await createImageBitmap(await fetchBlob(key)); }
+  catch { return viaImg(key); }
 }
+export const forget = (key) => blobs.delete(key);
+// film frames: same off-thread decode; `prefetchFrame` only brings the small compressed file in
+export const loadFrame = loadImage;
+export const prefetchFrame = (key) => { if (bitmaps) fetchBlob(key).catch(() => {}); };
 
 // Lazy DOM images: <img data-src="key"> / <source data-src="key">, loaded shortly before they scroll into view
 export function lazyImages(root = document) {
