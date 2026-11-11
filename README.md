@@ -51,6 +51,8 @@ Scrolling felt jerky: frames jumped instead of gliding. Three causes, all fixed:
 | The shortest transitions got 6vh of scroll per unit, so one notch leapt through a third of a lens or a dive | They now get 7.5–8vh; holds unchanged |
 | Images were decoded on the main thread at the moment they went to the GPU: 65–130 ms stalls for each 2.5K plate and 10–14 ms for every frame of the turning bottle and the falling drops (measured in headless Chromium) | All film images are decoded **off the main thread** (`createImageBitmap`) and uploaded as bitmaps (13–20 ms per plate, 3–4 ms per frame). Plates that are not needed yet wait for a calm moment to upload. The bottle and drop sequences keep a small decoded window around the current frame |
 
+**v3.2 — softer mouse wheel.** The camera's softness now depends on the input: with a mouse wheel it glides for ~0.65 s and has a top speed of 70vh per second, so one notch becomes a slow drift and a fast flick can't rush through a transition (peak camera speed per notch halves: 27 → 13vh/s). Trackpad and touch, already smooth, are followed more closely.
+
 Also: no layout reads inside the frame loop (geometry is measured on resize), a pixel budget for the canvas, and a frame-rate governor that lowers the render scale a step at a time if a device can't hold a steady frame rate.
 
 ## v3 — UX, motion & journey audit

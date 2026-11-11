@@ -222,12 +222,26 @@ let lastMove = 0, lastTarget = 0;
 // a tap on the rail's hint glides one step further into the story (normal scrolling is never taken over)
 $('#railHint').addEventListener('click', () => scrollBy({ top: innerHeight * 0.85, behavior: reduced ? 'auto' : 'smooth' }));
 let uS = 0, dS = 0, dV = 0, introStart = 0, introT = 0, last = performance.now(), motion = QA ? 1 : 0.3, snapNext = false;
-const GLIDE = mobile ? 0.2 : 0.3;            // seconds to catch up with the scroll (touch already has its own momentum)
-function follow(d, target, dt) {             // critically damped spring (Game Programming Gems 4, "SmoothDamp")
-  const om = 2 / GLIDE, x = om * dt, e = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-  const ch = d - target, tmp = (dV + om * ch) * dt;
+// How soft the camera is depends on the input. A mouse wheel moves the page in big separate notches,
+// so the camera glides long and has a top speed: a notch becomes a slow, soft drift and a fast flick can't
+// rush through a transition. A trackpad and touch already deliver smooth, continuous motion, so the camera
+// follows them more closely.
+const FEEL = { mouse: [0.65, 70], pad: [0.4, 160], touch: [0.2, 400] };   // [glide seconds, top speed in vh/s]
+let feel = mobile ? FEEL.touch : FEEL.mouse;
+addEventListener('wheel', (e) => {
+  if (mobile) return;
+  const dy = Math.abs(e.deltaY), wd = Math.abs(e.wheelDeltaY || 0);
+  if (e.deltaMode !== 0 || (wd >= 120 && wd % 120 === 0) || (dy >= 50 && Number.isInteger(e.deltaY))) feel = FEEL.mouse;
+  else if (dy < 12 || Math.abs(e.deltaX) > 0) feel = FEEL.pad;
+}, { passive: true });
+addEventListener('touchstart', () => { feel = FEEL.touch; }, { passive: true });
+function follow(d, target, dt) {             // critically damped spring with a top speed (Game Programming Gems 4, "SmoothDamp")
+  const [T, vmax] = feel;
+  const om = 2 / T, x = om * dt, e = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const lim = vmax * T, ch = clamp(d - target, -lim, lim), tgt = d - ch;
+  const tmp = (dV + om * ch) * dt;
   dV = (dV - om * tmp) * e;
-  let n = target + (ch + tmp) * e;
+  let n = tgt + (ch + tmp) * e;
   if ((target - d > 0) === (n > target)) { n = target; dV = 0; }
   return n;
 }
