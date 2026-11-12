@@ -160,7 +160,7 @@ const PL = {
 };
 // plate usage (u ranges) — drives texture streaming
 const USE = {
-  A: [[0, 14]], B: [[8, 23]], C: [[18, 31]], D: [[27, 39]], E: [[34, 52], [184, 200]], F: [[43, 63], [166, 194]],
+  A: [[0, 14]], B: [[8, 23]], C: [[18, 31]], D: [[26, 39]], E: [[34, 52], [184, 200]], F: [[43, 63], [166, 194]],
   MAC: [[60, 75]], DRP: [[69, 91]], TT: [[87, 107], [143, 174]], IC: [[103, 118]], IM: [[112, 128]], IB: [[122, 138]],
   IH: [[132, 148]], FIN: [[190, 200]],
 };
@@ -196,10 +196,26 @@ const ioc = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const oc = (t) => 1 - Math.pow(1 - t, 3);
 const ic = (t) => t * t * t;
 const lerp = (a, b, t) => a + (b - a) * t;
+// CSS-style cubic-bezier easing, so the film moves on the same curves as a premium UI
+function bez(x1, y1, x2, y2) {
+  const X = (t) => ((1 - 3 * x2 + 3 * x1) * t + (3 * x2 - 6 * x1)) * t * t + 3 * x1 * t;
+  const Y = (t) => ((1 - 3 * y2 + 3 * y1) * t + (3 * y2 - 6 * y1)) * t * t + 3 * y1 * t;
+  const dX = (t) => 3 * (1 - 3 * x2 + 3 * x1) * t * t + 2 * (3 * x2 - 6 * x1) * t + 3 * x1;
+  return (x) => {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 6; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t = clamp(t - (X(t) - x) / d, 0, 1); }
+    return Y(t);
+  };
+}
+const EIO = bez(0.4, 0, 0.2, 1);     // dissolves and camera moves: a soft start, a long gentle landing
+const EO = bez(0.22, 1, 0.36, 1);    // an arriving scene settling into place
+const xf = (u, a, b) => EIO(seg(u, a, b));
+const SIO = (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);   // long camera moves: the gentlest symmetric curve (no rush in the middle)
 const lerp2 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
 const bump = (u, a, m, b) => (u < a || u > b ? 0 : u < m ? sm(seg(u, a, m)) : 1 - sm(seg(u, m, b)));
 const L = (pl, z, c, b = 0, zb = 0, zc = null, dir = null) => ({ pl, z, c, b, zb, zc, dir });
-export { clamp, seg, sm, ioc, oc, lerp, bump };
+export { clamp, seg, sm, ioc, oc, lerp, bump, EIO, EO };
 
 export function createStage({ canvas, stage, onProgressLoad }) {
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -433,10 +449,12 @@ export function createStage({ canvas, stage, onProgressLoad }) {
   function lensFrom(L0, drop, t, fmin) {
     const asp = W / H, Rcover = Math.hypot(asp / 2, 0.5) * 1.06;
     return {
-      mode: 1, mix: sm(seg(t, 0.02, 0.16)), k: 1 - sm(seg(t, 0.5, 1)),
+      mode: 1, mix: xf(t, 0, 0.3), k: 1 - sm(seg(t, 0.5, 1)),
+      // the next world surfaces inside the drop softly, in the drop's own colours first
+      lb: [xf(t, 0.02, 0.42), 0.45 * (1 - sm(seg(t, 0.2, 0.8))), 0.22 * (1 - sm(seg(t, 0.3, 0.9)))],
       _lens: (X0) => {
         const s0 = toScreen(X0, L0.pl, drop);
-        const R = lerp(drop[2] / X0[1], Rcover, Math.pow(t, 2.4));
+        const R = lerp(drop[2] / X0[1], Rcover, Math.pow(t, 1.8));
         const c = lerp2(s0, [0.5, 0.5], sm(seg(t, 0.25, 1)));
         const F = 0.5 * (R + fmin + Math.sqrt((R - fmin) ** 2 + 0.004));
         return [c[0], c[1], R, F];
@@ -453,31 +471,29 @@ export function createStage({ canvas, stage, onProgressLoad }) {
     const zf = ttFit();
 
     if (u < 9) {                                   // 01 ENTER — a dark blurred shape comes into focus; the camera leans in
-      const e = ioc(seg(u, 0, 9));
+      const e = SIO(seg(u, 0, 9));
       L0 = L(PL.A, 1.06 + 1.32 * e, lerp2(PL.A.f, P.dropA, e));
     } else if (u < 14) {                           // lens: the drop holds a birch leaf
       const t = seg(u, 9, 14);
-      L0 = L(PL.A, 2.38 + 2.2 * ic(t), P.dropA);
+      L0 = L(PL.A, 2.38 + 2.2 * t * t, P.dropA);
       L1 = L(PL.B, 1 + 0.22 * (1 - sm(t)), PL.B.f);
       Object.assign(S, lensFrom(L0, P.dropA, t, 0.6));
     } else if (u < 19) {                           // 02 THE SOURCE — across the leaf toward one droplet
-      const e = ioc(seg(u, 14, 19));
-      L0 = L(PL.B, 1 + 0.95 * e, lerp2([0.52, 0.48], P.dropB, e));
+      const e = SIO(seg(u, 14, 19));
+      L0 = L(PL.B, 1 + 0.75 * e, lerp2([0.52, 0.48], P.dropB, e));
     } else if (u < 23) {                           // lens: the droplet holds heather
       const t = seg(u, 19, 23);
-      L0 = L(PL.B, 1.95 + 2.6 * ic(t), P.dropB);
+      L0 = L(PL.B, 1.75 + 2.6 * t * t, P.dropB);
       L1 = L(PL.C, 1 + 0.2 * (1 - sm(t)), PL.C.f);
       Object.assign(S, lensFrom(L0, P.dropB, t, 0.55));
       S.warm = 0.35 * sm(t);
-    } else if (u < 30.5) {                         // heather; a birch twig brushes the lens
+    } else if (u < 30.5) {                         // heather drifting in warm light; the cloudberry slowly dissolves in
       const e = seg(u, 23, 30.5);
-      const push = ic(seg(u, 27, 29.6));
-      L0 = L(PL.C, 1 + 0.32 * seg(u, 23, 27) + 1.6 * push, [lerp(0.52, 0.62, e), 0.5], 0, 0.32 * push);
-      S.warm = 0.35; S.expo = 1 + 0.12 * bump(u, 27.5, 29.1, 30.5);
-      if (u > 28.2) {
-        const s = oc(seg(u, 28.9, 30.5));
-        L1 = L(PL.D, lerp(1.9, 1.32, s), P.berry, 0, 0.3 * (1 - s));
-        S.mix = sm(seg(u, 28.7, 29.6)); S.warm = lerp(0.35, 0.2, S.mix);
+      L0 = L(PL.C, 1 + 0.3 * xf(u, 23, 28) + 0.28 * xf(u, 27, 30.5), [lerp(0.52, 0.62, EIO(e)), 0.5], 0.012 * xf(u, 28, 30.5));
+      S.warm = 0.35; S.expo = 1 + 0.07 * bump(u, 27, 29, 30.5);
+      if (u > 26.8) {
+        L1 = L(PL.D, lerp(1.52, 1.32, EO(seg(u, 26.8, 30.5))), P.berry, 0.014 * (1 - xf(u, 27.5, 30.2)));
+        S.mix = xf(u, 27.2, 30.4); S.warm = lerp(0.35, 0.2, S.mix);
       }
     } else if (u < 35) {                           // 03 THE INGREDIENT — cloudberry, camera eases back
       const e = oc(seg(u, 30.5, 35));
@@ -497,34 +513,37 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       L0 = L(PL.E, z, c, 0, mb, [0.5, 0.42]); L1 = L(PL.F, z, c);
       S.mode = 2; S.wipe = sm(seg(u, 47, 50.4)); S.mix = sm(seg(u, 50, 51.2));
       S.mist = 1 - 0.5 * S.mix; S.expo = 1 + 0.22 * bump(u, 47.6, 49.8, 53); S.warm = 0.15 * S.mix;
-    } else if (u < 62.5) {                         // 05 INSIDE THE PRODUCT — into the glass until amber is all there is
-      const t = seg(u, 58, 62.5), e = ic(t);
-      L0 = L(PL.F, lerp(1.37, 9, e), lerp2([mobile ? P.bottle[0] : 0.5, 0.31], P.oilF, sm(seg(t, 0, 0.5))), 0.02 * sm(seg(t, 0.55, 1)), 0.3 * ic(t));
-      S.expo = 1 + 0.12 * t; S.warm = 0.15 + 0.25 * t; S.vig = lerp(0.42, 0.8, t);
-      if (t > 0.72) { L1 = L(PL.MAC, 3.6, P.macOil, 0.02, 0.22); S.mix = sm(seg(t, 0.75, 1)); }
+    } else if (u < 62.5) {                         // 05 INSIDE THE PRODUCT — the camera leans into the glass; the oil dissolves into its macro
+      const t = seg(u, 58, 62.5);
+      const c58 = [mobile ? P.bottle[0] : 0.5, mobile && H / W < 1.9 ? 0.37 : 0.31];
+      L0 = L(PL.F, lerp(1.41, 3.6, EIO(t)), lerp2(c58, P.oilF, xf(t, 0, 0.7)), 0.014 * xf(t, 0.45, 1), 0.08 * bump(t, 0.15, 0.6, 1));
+      S.expo = 1 + 0.1 * EIO(t); S.warm = 0.15 + 0.25 * EIO(t); S.vig = lerp(0.42, 0.7, EIO(t));
+      S.mist = 0.5 * (1 - xf(t, 0, 0.6)); S.fadeCol = STUDIO;
+      if (t > 0.34) { L1 = L(PL.MAC, lerp(2.5, 2.15, EO(seg(t, 0.34, 1))), P.macOil, 0.014 * (1 - xf(t, 0.5, 1))); S.mix = xf(t, 0.38, 1); }
     } else if (u < 70) {                           // the glass, the oil, the frosted name — pulling back
-      const e = oc(seg(u, 62.5, 69));
-      L0 = L(PL.MAC, lerp(3.6, 1.14, e), lerp2(P.macOil, [0.56, 0.6], e), 0.02 * (1 - sm(seg(u, 62.5, 64.5))), 0.22 * (1 - sm(seg(u, 62.5, 64.8))));
-      S.vig = lerp(0.8, 0.5, e); S.warm = lerp(0.4, 0.1, e); S.fadeCol = STUDIO;
+      const e = SIO(seg(u, 62.5, 70));
+      L0 = L(PL.MAC, lerp(2.15, 1.14, e), lerp2(P.macOil, [0.56, 0.6], e));
+      S.vig = lerp(0.7, 0.5, e); S.warm = lerp(0.4, 0.1, e); S.expo = 1.1 - 0.1 * e; S.fadeCol = STUDIO;
     } else if (u < 75) {                           // follow the pipette down — match cut on its tip
       const t = seg(u, 70, 75);
-      const tilt = 0.07 * bump(t, 0.15, 0.5, 0.85);
-      L0 = L(PL.MAC, lerp(1.14, 2.6, ioc(seg(t, 0, 0.6))), lerp2([0.56, 0.6], P.macPip, ioc(seg(t, 0, 0.6))), 0, 0, null, [0, tilt]);
-      L1 = L(PL.DRP, lerp(2.5, 1.02, oc(seg(t, 0.45, 1))), lerp2(P.drpTip, PL.DRP.f, oc(seg(t, 0.45, 1))), 0, 0, null, [0, tilt]);
-      S.mix = sm(seg(t, 0.42, 0.6)); S.drpT = 0; S.vig = 0.5;
+      const tilt = 0.035 * bump(t, 0.1, 0.45, 0.85), k = xf(t, 0, 0.72);
+      L0 = L(PL.MAC, lerp(1.14, 2.2, k), lerp2([0.56, 0.6], P.macPip, k), 0, 0, null, [0, tilt]);
+      const s = EO(seg(t, 0.25, 1));
+      L1 = L(PL.DRP, lerp(2.2, 1.02, s), lerp2(P.drpTip, PL.DRP.f, s), 0, 0, null, [0, tilt]);
+      S.mix = xf(t, 0.26, 0.8); S.drpT = 0; S.vig = 0.5;
     } else if (u < 86) {                           // 06 THREE DROPS
       const t = seg(u, 75, 86);
       L0 = L(PL.DRP, 1.02 + 0.06 * t, PL.DRP.f);
       S.drpT = t; S.vig = 0.55;
     } else if (u < 90) {                           // dive into the pool: its surface becomes the oil inside the bottle
       const t = seg(u, 86, 90);
-      L0 = L(PL.DRP, lerp(1.08, 6, ic(seg(t, 0, 0.8))), lerp2(PL.DRP.f, P.drpPool, sm(seg(t, 0, 0.5))), 0.02 * sm(seg(t, 0.45, 0.85)), 0.3 * ic(seg(t, 0, 0.85)));
+      L0 = L(PL.DRP, lerp(1.08, 3.3, EIO(t)), lerp2(PL.DRP.f, P.drpPool, xf(t, 0, 0.6)), 0.014 * xf(t, 0.4, 1), 0.08 * bump(t, 0.15, 0.55, 1));
       S.drpT = 1;
-      L1 = L(PL.TT, 7, P.ttOil, 0.02, 0.25); S.mix = sm(seg(t, 0.72, 1)); S.ttA = 0; S.warm = 0.25 * t;
+      L1 = L(PL.TT, lerp(3.5, 3.1, EO(seg(t, 0.32, 1))), P.ttOil, 0.014 * (1 - xf(t, 0.5, 1))); S.mix = xf(t, 0.36, 1); S.ttA = 0; S.warm = 0.25 * EIO(t);
       S.fadeCol = STUDIO;
     } else if (u < 95.5) {                         // pull back: the bottle is revealed around the oil
-      const t = seg(u, 90, 95.5), e = oc(t);
-      L0 = L(PL.TT, lerp(7, zf, e), lerp2(P.ttOil, ttAt(0.5, zf), e), 0.02 * (1 - sm(seg(t, 0, 0.3))), 0.25 * (1 - sm(seg(t, 0, 0.5))));
+      const t = seg(u, 90, 95.5), e = SIO(t);
+      L0 = L(PL.TT, lerp(3.1, zf, e), lerp2(P.ttOil, ttAt(0.5, zf), e));
       S.ttA = 0; S.warm = 0.25 * (1 - e);
     } else if (u < 101.5) {                        // the bottle turns
       const t = seg(u, 95.5, 101.5);
@@ -535,36 +554,37 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       }
       S.ttA = t < 0.33 ? Math.sin(t / 0.33 * Math.PI / 2) : t < 0.8 ? Math.cos((t - 0.33) / 0.47 * Math.PI) : -1 + seg(t, 0.8, 1);
     } else if (u < 106) {                          // 07 RETURN TO NATURE — closer, into the amber, until it is sunlight
-      const t = seg(u, 101.5, 106), e = ic(t);
-      L0 = L(PL.TT, lerp(zf, 6.5, e), lerp2(ttAt(0.5, zf), P.ttOil, sm(seg(t, 0, 0.6))), 0.02 * sm(seg(t, 0.55, 1)), 0.26 * e);
-      S.ttA = 0; S.amber = sm(seg(t, 0.45, 1)); S.warm = 0.3 * t;
-      if (t > 0.66) { L1 = L(PL.IC, 1.6, P.icLight, 0.02, 0.2); S.mix = sm(seg(t, 0.7, 1)); }
+      const t = seg(u, 101.5, 106);
+      L0 = L(PL.TT, lerp(zf, 3.1, SIO(t)), lerp2(ttAt(0.5, zf), P.ttOil, SIO(seg(t, 0, 0.8))), 0.014 * xf(t, 0.45, 1), 0.07 * bump(t, 0.15, 0.6, 1));
+      S.ttA = 0; S.amber = SIO(seg(t, 0.08, 1)); S.warm = 0.3 * SIO(t);
+      if (t > 0.38) { L1 = L(PL.IC, lerp(1.56, 1.42, EO(seg(t, 0.38, 1))), P.icLight, 0.014 * (1 - xf(t, 0.5, 1))); S.mix = xf(t, 0.42, 1); }
     } else if (u < 113.5) {                        // the light settles: we are standing in front of the cloudberries
-      const t = seg(u, 106, 113.5), e = ioc(seg(t, 0, 0.75));
-      L0 = L(PL.IC, lerp(1.6, 1.15, e), lerp2(P.icLight, P.icBerry, e), 0.02 * (1 - sm(seg(t, 0, 0.3))), 0.2 * (1 - sm(seg(t, 0, 0.4))));
-      S.amber = 1 - sm(seg(t, 0, 0.42)); S.warm = 0.3;
+      const t = seg(u, 106, 113.5), e = xf(t, 0, 0.8);
+      L0 = L(PL.IC, lerp(1.42, 1.15, e), lerp2(P.icLight, P.icBerry, e));
+      S.amber = 1 - xf(t, 0, 0.5); S.warm = 0.3;
     } else if (u < 117) {                          // 08 THE INGREDIENTS — tilt down into the moss under the berries
       const t = seg(u, 113.5, 117);
-      const tilt = 0.09 * bump(t, 0.1, 0.62, 1);
-      L0 = L(PL.IC, lerp(1.15, 2.4, ic(t)), lerp2(P.icBerry, P.icMoss, ioc(t)), 0, 0.12 * ic(t), null, [0, tilt]);
-      L1 = L(PL.IM, 2.6, P.imMoss, 0, 0.1 * (1 - t), null, [0, tilt]); S.mix = sm(seg(t, 0.55, 0.85));
-      S.warm = 0.3 * (1 - S.mix);
+      const tilt = 0.02 * bump(t, 0.1, 0.5, 0.95);
+      L0 = L(PL.IC, lerp(1.15, 1.36, SIO(t)), lerp2(P.icBerry, [0.64, 0.44], SIO(t)), 0.01 * xf(t, 0.4, 1), 0, null, [0, tilt]);
+      L1 = L(PL.IM, lerp(1.95, 1.75, EO(seg(t, 0.2, 1))), lerp2([0.47, 0.5], P.imMoss, EO(seg(t, 0.2, 1))), 0.012 * (1 - xf(t, 0.45, 1)), 0, null, [0, tilt]);
+      S.mix = xf(t, 0.2, 0.96); S.warm = 0.3 * (1 - S.mix);
     } else if (u < 124) {                          // through the moss: fibres, water, light
-      const t = seg(u, 117, 124), e = oc(t);
-      L0 = L(PL.IM, lerp(2.6, 1.12, e), lerp2(P.imMoss, [0.5, 0.52], e), 0, 0.1 * (1 - sm(seg(t, 0, 0.25))));
+      const t = seg(u, 117, 124), e = EIO(t);
+      L0 = L(PL.IM, lerp(1.75, 1.12, e), lerp2(P.imMoss, [0.5, 0.52], e));
     } else if (u < 128) {                          // the focus slips to the mist behind; birch trunks appear in it
       const t = seg(u, 124, 128);
-      L0 = L(PL.IM, lerp(1.12, 1.5, sm(t)), lerp2([0.5, 0.52], P.imMist, ioc(seg(t, 0, 0.7))), 0.02 * sm(seg(t, 0.2, 0.6)));
-      L1 = L(PL.IB, 1.45, mobile ? P.ibBark : P.ibMist, 0.012); S.mix = sm(seg(t, 0.42, 0.68)); S.mist = 0.6;
-      S.fog = 0.74 * bump(u, 124.2, 126.1, 129.4); S.fogTop = -0.15;
+      L0 = L(PL.IM, lerp(1.12, 1.3, SIO(t)), lerp2([0.5, 0.52], [0.56, 0.34], SIO(t)), 0.018 * xf(t, 0.15, 0.7));
+      L1 = L(PL.IB, lerp(1.55, 1.45, EO(seg(t, 0.25, 1))), mobile ? P.ibBark : P.ibMist, 0.012); S.mix = xf(t, 0.28, 0.94);
+      S.mist = 0.6 * xf(t, 0, 0.5);
+      S.fog = 0.7 * bump(u, 123.8, 126.6, 130); S.fogTop = -0.15;
     } else if (u < 133) {                          // out of the mist onto the bark; a bead of sap
-      const t = seg(u, 128, 133), e = ioc(t);
+      const t = seg(u, 128, 133), e = SIO(t);
       L0 = L(PL.IB, lerp(1.45, 2.05, e), lerp2(mobile ? P.ibBark : P.ibMist, P.sap, e), 0.012 * (1 - sm(seg(t, 0, 0.3))));
-      S.mist = 0.6 * (1 - t); S.fog = 0.74 * bump(u, 124.2, 126.1, 129.4); S.fogTop = -0.15;
+      S.mist = 0.6 * (1 - t); S.fog = 0.7 * bump(u, 123.8, 126.6, 130); S.fogTop = -0.15;
     } else if (u < 137) {                          // lens: the sap holds the heather
       const t = seg(u, 133, 137);
-      L0 = L(PL.IB, 2.05 + 3 * ic(t), P.sap);
-      L1 = L(PL.IH, 1 + 0.2 * (1 - sm(t)), P.ihBee);
+      L0 = L(PL.IB, 2.05 + 3 * t * t, P.sap);
+      L1 = L(PL.IH, 1.2 + 0.2 * (1 - sm(t)), P.ihBee);           // lands exactly where the heather shot begins
       Object.assign(S, lensFrom(L0, P.sap, t, 0.55));
       // softer than the opening lenses: the heather appears inside the sap in the birch's grey-green first,
       // its colour and the warm, misty light of the next scene arrive as the drop grows
@@ -617,8 +637,8 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       L0 = L(PL.TT, zf, ttAt(sx, zf)); S.ttA = 0;
       const m = fMatch(sx, zf);
       const zShop = mobile ? 1.02 : 1.22, cShop = mobile ? [P.bottle[0], 0.3] : [P.bottle[0] - 0.2, 0.33];
-      L1 = L(PL.F, lerp(m.z, zShop, oc(seg(t, 0.35, 1))), lerp2(m.c, cShop, oc(seg(t, 0.35, 1))));
-      S.mix = sm(seg(t, 0.05, 0.45)); S.mist = S.mix; S.fog = 0.55 * bump(t, 0, 0.3, 0.75);
+      L1 = L(PL.F, lerp(m.z, zShop, xf(t, 0.25, 1)), lerp2(m.c, cShop, xf(t, 0.25, 1)));
+      S.mix = SIO(seg(t, 0, 0.92)); S.mist = S.mix; S.fog = 0.5 * bump(t, 0, 0.4, 1);
     } else if (u < 186) {                          // the shop holds in the landscape
       const t = seg(u, 172, 186);
       L0 = L(PL.F, (mobile ? 1.02 : 1.22) - (mobile ? 0.02 : 0.04) * t, mobile ? [P.bottle[0], 0.3] : [P.bottle[0] - 0.2, 0.33]);
@@ -627,12 +647,12 @@ export function createStage({ canvas, stage, onProgressLoad }) {
       const t = seg(u, 186, U_MAX);
       const zs = mobile ? 1.0 : 1.18;
       const c0 = mobile ? [P.bottle[0], 0.3] : [P.bottle[0] - 0.2, 0.33];
-      const pull = ioc(seg(u, 189, 196));
+      const pull = SIO(seg(u, 188.5, 196.5));
       const z = lerp(zs, 1, pull), c = lerp2(c0, [0.5, 0.46], pull);
       L0 = L(PL.F, z, c);
-      if (u > 188.6 && u <= 192) { L1 = L(PL.E, z, c); S.mix = sm(seg(u, 188.7, 190.1)); }
+      if (u > 187.6 && u <= 192) { L1 = L(PL.E, z, c); S.mix = xf(u, 187.6, 190.1); }
       if (u > 190.1) L0 = L(PL.E, z, c);
-      if (u > 192) { L1 = L(PL.FIN, lerp(1.5, 1.0, oc(seg(u, 192, U_MAX))), [0.5, 0.5], 0.0016); S.mix = sm(seg(u, 192.4, 196)); }
+      if (u > 192) { L1 = L(PL.FIN, lerp(1.4, 1.0, EO(seg(u, 192, U_MAX))), [0.5, 0.5], 0.0016); S.mix = xf(u, 192.2, 196.4); }
       S.mist = 1 - S.mix * 0.6;
       S.fog = bump(u, 186.2, 189.2, 193.8); S.fogTop = mobile ? 0.12 : 0.16;
     }
@@ -647,7 +667,9 @@ export function createStage({ canvas, stage, onProgressLoad }) {
   let last = null;
   // the camera is never perfectly still: a slow, small breath (screen-space, applied to both layers alike,
   // so matched cuts stay matched). It is what keeps a paused frame alive.
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;   // reduced motion: no breathing camera
   function breathe(X, time) {
+    if (still) return X;
     const a = 0.007 + 0.005 * Math.sin(time * 0.27);
     const s = 1 / (1 + a), room = (1 - s) / 2 * 0.65;
     const px = room * Math.sin(time * 0.19), py = room * Math.cos(time * 0.23);

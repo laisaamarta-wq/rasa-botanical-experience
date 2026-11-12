@@ -1,6 +1,6 @@
 import './style.css';
 import { A, isMobile } from './assets.js';
-import { createStage, U_MAX, HOTSPOTS, DRP_LAND, FORMULA_LAND, clamp, seg, sm, ioc, oc, lerp } from './stage.js';
+import { createStage, U_MAX, HOTSPOTS, DRP_LAND, FORMULA_LAND, clamp, seg, sm, ioc, oc, lerp, EIO, EO } from './stage.js';
 import { initShop } from './shop.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -13,20 +13,20 @@ const mobile = isMobile();
 // How much scroll each part of the film gets (vh of scroll per unit of film time).
 // Optical transitions are SHORT (6), camera moves and discoveries MEDIUM (8–9),
 // the moments that carry the story LONG (11–14): the four plants, the product reveal and its hold.
-// v3.1: the shortest optical transitions had so little scroll (6vh per unit) that one mouse-wheel notch
-// leapt through a third of a transition in a single step. They now get 7.5–8, so every transition takes
-// several calm steps; the long holds are unchanged.
+// v3.3: every scene change is a long, layered dissolve, and the scroll it gets is set from a measurement of
+// how much the picture changes per vh (see README): no transition may change the picture much faster
+// than the calm camera moves around it.
 const SEGS = [
   [0, 3, 10], [3, 9, 8],                       // 01 enter: let the first frame land
-  [9, 14, 8], [14, 19, 9], [19, 23, 8], [23, 27, 9], [27, 30.5, 7.5], // 02 the source: lens · leaf · lens · heather · push
+  [9, 14, 8], [14, 19, 10], [19, 23, 8], [23, 27, 9], [27, 30.5, 9],  // 02 the source: lens · leaf · lens · heather · dissolve
   [30.5, 35, 9], [35, 39, 8], [39, 45, 12],    // 03 cloudberry · pull back · the bog and its four plants
   [45, 51, 10], [51, 58, 14],                  // 04 the bottle grows out of the moss · HERO HOLD
-  [58, 62.5, 7.5], [62.5, 70, 9], [70, 75, 8], // 05 into the glass · macro · follow the pipette
-  [75, 86, 9], [86, 90, 7.5], [90, 95.5, 8], [95.5, 101.5, 9],        // 06 three drops · dive · reveal · turn
-  [101.5, 106, 7.5], [106, 113.5, 9], [113.5, 117, 7.5], [117, 124, 8], // 07 amber → light · cloudberry · tilt · moss
-  [124, 129, 7.5], [129, 133, 8], [133, 137, 7.5], [137, 143, 8],      //    mist · birch · lens · heather
+  [58, 62.5, 10], [62.5, 70, 9], [70, 75, 9],   // 05 into the glass · macro · follow the pipette
+  [75, 86, 9], [86, 90, 9], [90, 95.5, 9.5], [95.5, 101.5, 9],        // 06 three drops · dive · reveal · turn
+  [101.5, 106, 10.5], [106, 113.5, 9], [113.5, 117, 10], [117, 124, 8], // 07 amber → light · cloudberry · into the moss · moss
+  [124, 129, 10], [129, 133, 8], [133, 137, 9], [137, 143, 8],        //    mist · birch · lens · heather
   [143, 151, 8], [151, 158.4, 9], [158.4, 168, 9],                     // 08 formula · INCI · 09 ritual
-  [168, 172, 7.5], [172, 186, 8], [186, 200, 8],                       // 10 shop · 11 return
+  [168, 172, 9.5], [172, 186, 8], [186, 200, 8],                       // 10 shop · 11 return
 ];
 const SCALE = mobile ? 0.8 : 1;
 const D0 = []; let TOTAL = 0;
@@ -131,7 +131,8 @@ function place(el, x, y, s = 1) { css(el, 'transform', `translate3d(${x.toFixed(
 
 function updateOverlays(u, S, introT, cueT = 0) {
   const { W, H } = stage ? stage.size : { W: innerWidth, H: innerHeight };
-  for (const o of overlays) o.op = Math.min(sm(seg(u, o.a, o.a + 1)), 1 - sm(seg(u, o.b - 1, o.b)));
+  // text arrives slowly with its scene (a long ease-out) and leaves a little faster than it came
+  for (const o of overlays) { o.inn = EO(seg(u, o.a, o.a + 1.7)); o.out = 1 - EIO(seg(u, o.b - 1.3, o.b)); o.op = Math.min(o.inn, o.out); }
   if (mobile) for (const z of ['top', 'bottom']) {
     let before = 0;                                   // overlays are in story order, so earlier blocks come first
     for (const o of overlays) { if (o.zone !== z || o.op <= 0.001) continue; const own = o.op; o.op *= 1 - before; before = Math.max(before, own); }
@@ -139,7 +140,7 @@ function updateOverlays(u, S, introT, cueT = 0) {
   for (const o of overlays) {
     const op = o.op;
     // label and title arrive first, the supporting copy follows a moment later (CSS reads --in)
-    cssVar(o.el, '--in', seg(u, o.a, o.a + 1.8).toFixed(2));
+    cssVar(o.el, '--in', seg(u, o.a, o.a + 2.4).toFixed(2));
     if (op <= 0.001) {
       if (o.live !== null) { css(o.el, 'opacity', '0'); o.el.classList.remove('is-live'); o.live = null; }
       continue;
@@ -149,7 +150,7 @@ function updateOverlays(u, S, introT, cueT = 0) {
     if (o.pin && S && stage) {
       const p = stage.project(S, o.pin.pl, o.pin.p);
       if (p) place(o.el, p[0] * W, p[1] * H);
-    } else if (!o.still) css(o.el, 'translate', `0 ${((1 - op) * 14).toFixed(1)}px`);
+    } else if (!o.still) css(o.el, 'translate', `0 ${((1 - o.inn) * 18 - (1 - o.out) * 8).toFixed(1)}px`);   // rises in, drifts gently up as it leaves
   }
   // intro
   const io = Math.min(sm(seg(introT, 0.35, 1)), 1 - sm(seg(u, 0.6, 3.2)));

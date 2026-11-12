@@ -41,6 +41,31 @@ The whole site is now **one camera move**: a single scroll-driven film with no s
   - **ground mist:** it rises and clears with a soft, moving edge (moss → birch, and the ending where the bottle disappears into the mist)
   - focus pulls, dew lens and amber → light are unchanged.
 
+## v3.3 — transitions as dissolves, measured
+
+The film no longer cuts or whips from one picture to the next: every scene change is a layered dissolve.
+
+**How it was measured.** The film is rendered at 4,000 even steps (every 0.05 of film time) with the clock frozen, and each frame is compared with the one before at the level of composition, light and colour (8×8-pixel block means, so texture sliding past doesn't count). Dividing by the scroll each step takes gives *picture change per vh of scroll*: a calm camera move sits around 2–5, the old abrupt transitions spiked to 13–32.
+
+| | median | 90th pct | worst |
+|---|---|---|---|
+| before — desktop | 1.22 | 7.5 | 32.1 |
+| after — desktop | 1.21 | 5.4 | 10.9 |
+| before — phone | 2.01 | 9.8 | 24.1 |
+| after — phone | 1.88 | 7.4 | 12.2 |
+
+**What changed in the shot list (`compose()` in `stage.js`):**
+- Crossfades that lasted ~1 unit of film time (one wheel notch) now last 2.5–3.5 and **overlap the camera move**: the next scene starts to appear while the previous one is still moving, so there is never a hard boundary.
+- The arriving scene **settles** into place (scale ≈1.05–1.1 → 1, `EO` = cubic-bezier(0.22, 1, 0.36, 1)) while the leaving one keeps drifting: a little parallax between the two layers.
+- **No more dramatic zoom-throughs.** Into the glass 9× → 3.6×, the dive 6× → 3.3×, amber 6.5× → 3.1×, and the macro and bottle pull-backs start from there. The cloudberry → moss whip-tilt and the moss → mist focus slip became slow dissolves with small drifts.
+- Camera moves use a symmetric sine ease (no rush in the middle); dissolves use `EIO` = cubic-bezier(0.4, 0, 0.2, 1).
+- Discontinuities at shot boundaries fixed (the mist that switched off at the start of chapter 05; the heather that jumped in scale where the sap lens ends). Lens drops grow more evenly instead of flooding the screen at the very end.
+- The scroll each transition gets was re-balanced from the measurement (`SEGS` in `main.js`).
+- Text arrives with a long ease-out and an 18px rise, leaves slightly faster with a small upward drift; supporting copy follows its title.
+- `prefers-reduced-motion`: scroll follows instantly and the camera does not breathe.
+
+Native scrolling is never taken over: no snapping, no wheel hijacking; the film is a pure function of the scroll position, so scrolling back up plays every transition backwards.
+
 ## v3.1 — smooth scroll pass
 
 Scrolling felt jerky: frames jumped instead of gliding. Three causes, all fixed:
